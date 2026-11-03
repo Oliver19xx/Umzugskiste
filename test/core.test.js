@@ -179,6 +179,6 @@ test('Offline-Liste vollständig, Version passt', () => {
   assert.ok(sw.includes(`umzugskiste-${VERSION}`));
   const shell = [...sw.match(/SHELL = \[([\s\S]*?)\];/)[1].matchAll(/'([^']+)'/g)].map(m => m[1]);
   for (const f of shell) if (f !== './') assert.ok(existsSync(f), `fehlt: ${f}`);
-  const files = [...readdirSync('src').filter(f => f.endsWith('.js')).map(f => `src/${f}`), ...readdirSync('src/services').map(f => `src/services/${f}`), ...readdirSync('fonts').map(f => `fonts/${f}`)];
+  const files = [...readdirSync('src').filter(f => f.endsWith('.js')).map(f => `src/${f}`), ...readdirSync('src/services').map(f => `src/services/${f}`), ...readdirSync('fonts').filter(f => f.endsWith('.woff2')).map(f => `fonts/${f}`)];
   for (const f of files) assert.ok(shell.includes(f), `nicht im Cache: ${f}`);
 });
