@@ -4,10 +4,10 @@
 const CACHE = 'umzugskiste-0.1.0';
 const NET_WAIT = 2500;
 const SHELL = [
-  './', 'manifest.webmanifest', 'deezer-frame.html', 'css/app.css', 'assets/explainer.gif', 'assets/explainer.png',
+  './', 'manifest.webmanifest', 'css/app.css', 'assets/explainer.gif', 'assets/explainer.png',
   'src/app.js', 'src/ui.js', 'src/runner.js', 'src/model.js', 'src/match.js', 'src/parse.js',
   'src/share.js', 'src/export.js', 'src/errors.js', 'src/transfer.js', 'src/store.js',
-  'src/services/index.js', 'src/services/spotify.js', 'src/services/youtube.js', 'src/services/deezer.js',
+  'src/config.js', 'src/services/index.js', 'src/services/pkce.js', 'src/services/spotify.js', 'src/services/soundcloud.js',
   'fonts/barlow-latin-400-normal.woff2', 'fonts/barlow-latin-500-normal.woff2', 'fonts/barlow-latin-600-normal.woff2',
   'fonts/big-shoulders-stencil-latin-800-normal.woff2',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',

@@ -2,37 +2,43 @@
 
 ![Umzugskiste packt eine Playlist ein und trägt sie im neuen Dienst ein](assets/explainer.gif)
 
-Zieht Playlists von einem Musikdienst zum anderen um. Offline-first PWA ohne Server, ohne Konto, ohne Build-Schritt.
+Zieht Playlists zwischen Spotify und SoundCloud um. Offline-first PWA ohne Konto und ohne Build-Schritt.
 
 ## Was geht
 
-| | Einlesen | Eintragen |
-|---|---|---|
-| Spotify | Playlists, Lieblingssongs | Playlists, Lieblingssongs |
-| YouTube / YouTube Music | Playlists | Playlists (rund 100 Songs am Tag) |
-| Deezer | öffentliche Playlists und Alben per Link | Klickliste |
-| Apple Music, TIDAL, Amazon, SoundCloud, Beatport, Bandcamp | über Datei | Klickliste |
-| Text, CSV, TXT, JSON, M3U | ja | Export als CSV, TXT, JSON |
+- **Einpacken:** Spotify-Playlists und Lieblingssongs, SoundCloud-Sets und gelikte Tracks, Text, CSV, JSON, M3U
+- **Umziehen:** in neue oder bestehende Playlists und Sets, auch in Likes
+- **Abgleich:** ISRC, Titel, Künstler, Länge. Andere Versionen (Extended Mix, Radio Edit) kommen zur Prüfung
+- **Teilen:** Die Kiste steckt gepackt im `#`-Teil des Links, kein Server sieht sie
+- **Nachziehen:** Neue Songs per Knopf ins Ziel holen. Hintergrund-Sync bräuchte einen Server
+- **Offline:** Packen, ansehen, exportieren und teilen geht ohne Netz. Umzüge laufen online an gleicher Stelle weiter
 
-- **Abgleich:** erst ISRC, dann Titel, Künstler und Länge. Andere Versionen (Extended Mix und Radio Edit) gelten als unsicher und landen zur Prüfung bei dir.
-- **Teilen:** Die Kiste steckt gepackt im `#`-Teil des Links. Kein Server sieht sie.
-- **Nachziehen:** Holt neue Songs in die Ziel-Playlist. Das passiert von Hand, ein Hintergrund-Sync bräuchte einen Server.
-- **Offline:** Kisten packen, ansehen, exportieren und teilen geht ohne Netz. Umzüge warten und laufen online weiter, an genau der Stelle. Das gilt auch nach Schließen der App, nach Ablauf der Anmeldung und nach dem YouTube-Tageslimit, solange die App dann offen ist.
+YouTube Music, Apple Music, TIDAL, Deezer und Amazon Music sind ausgegraut und können später dazukommen. Frühere Adapter für YouTube und Deezer stehen in der Git-Historie (`43fa24a`).
 
-## Dienste einrichten
+## Einrichtung
 
-Jeder braucht eigene Zugangs-IDs, Schritte stehen in der App unter „Dienste“.
+**Spotify:** Jeder Nutzer legt im Developer Dashboard eine eigene App an (Premium nötig), weil der Dev-Mode nur fünf Nutzer je Client ID erlaubt. Schritte stehen in der App.
 
-- **Spotify:** App im Developer Dashboard anlegen, Premium nötig. Dev-Mode erlaubt fünf Nutzer pro Client ID, darum bringt jeder seine eigene mit.
-- **YouTube:** OAuth-Client in der Google Cloud Console. Redirect URI ist die Adresse der Seite.
+**SoundCloud:** Einmalig durch den Betreiber. SoundCloud verlangt beim Token-Tausch ein Client Secret, das nicht in den Browser darf. Darum gibt es eine kleine Funktion unter `supabase/functions/soundcloud-token`, sonst keinen Server.
+
+1. Unter „Your Apps“ eine App anlegen, Artist Pro nötig. Redirect URI ist die Adresse der Seite.
+2. Funktion deployen: `supabase functions deploy soundcloud-token --no-verify-jwt`
+3. Secrets setzen: `SOUNDCLOUD_CLIENT_ID`, `SOUNDCLOUD_CLIENT_SECRET`, `ALLOWED_ORIGINS`, `ALLOWED_REDIRECTS`
+4. In `src/config.js` Client ID und Funktions-URL eintragen
 
 Lokal muss die Adresse `http://127.0.0.1:5173/` sein, Spotify lehnt `localhost` ab.
+
+## Einschränkungen
+
+- Kisten liegen pro Gerät im Browser, mit Sicherungsdatei übertragbar
+- SoundCloud-Limits gelten für alle Nutzer zusammen: rund 100 Anfragen pro Minute, 3.000 Suchen pro Stunde, 500 Likes am Tag
+- Spotify gibt Songs nur aus eigenen und kollaborativen Playlists heraus
 
 ## Entwicklung
 
 ```sh
 npm start        # http://127.0.0.1:5173/
-npm test         # Logik: Parser, Abgleich, Umzug, Teilen
+npm test         # Logik: Parser, Abgleich, Umzug, Teilen, Token-Funktion
 npm run e2e      # Browser-Test mit nachgebauten Dienst-APIs, Screenshots in e2e/shots/
 ```
 
@@ -42,7 +48,7 @@ Aufbau: `src/transfer.js` steuert den Umzug, `src/match.js` den Abgleich, `src/s
 
 ## Feedback
 
-Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/SyncMyMusic/issues/new).
+Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/Umzugskiste/issues/new).
 
 ## Release
 
@@ -50,6 +56,6 @@ Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/SyncMyMusic/issu
 
 ## Rechtliches
 
-Spotify Developer Policy III.9 verbietet Übertragungen an andere Dienste, nimmt aber Playlist-Metadaten der Nutzer und deren eigene Daten aus. Die App überträgt nur das. Der Name darf nicht an Spotify erinnern (VI.2).
+Spotify Developer Policy III.9 verbietet Übertragungen an andere Dienste, nimmt aber Playlist-Metadaten der Nutzer aus. SoundCloud-Terms: keine Audio-Weitergabe, Uploader und Quelle nennen, Secret schützen. Die App überträgt nur Metadaten und verlinkt auf die Originale.
 
-Nicht verbunden mit Spotify, Google, Apple, Deezer oder TIDAL und nicht von ihnen unterstützt. Schriften: SIL OFL, siehe `fonts/LICENSE.txt`.
+Nicht verbunden mit Spotify oder SoundCloud und nicht von ihnen unterstützt. Schriften: SIL OFL, siehe `fonts/LICENSE.txt`.

@@ -8,8 +8,8 @@ import { encodeShare, decodeShare } from '../src/share.js';
 import { toCsv, toJson, reportCsv } from '../src/export.js';
 import { newJob, runJob, counts, confirmReview, isDue, retry, delta } from '../src/transfer.js';
 import { QuotaError, AuthError } from '../src/errors.js';
-import { parseVideo, isoDuration, nextReset } from '../src/services/youtube.js';
-import { parseDeezerUrl } from '../src/services/deezer.js';
+import { parseUpload } from '../src/services/soundcloud.js';
+import { handle } from '../supabase/functions/soundcloud-token/handler.js';
 
 const T = (title, artists, extra = {}) => makeTrack({ title, artists, ...extra });
 
@@ -163,16 +163,26 @@ test('Nachziehen und Bericht', () => {
   assert.deepEqual(delta(job, b).map(t => t.title), ['Zwei']);
   assert.match(reportCsv(job), /offen,Eins/);
 });
-test('YouTube-Helfer', () => {
-  assert.deepEqual(parseVideo('Bicep - Glue (Official Video)', 'X'), { title: 'Glue', artists: ['Bicep'] });
-  assert.deepEqual(parseVideo('Glue', 'Bicep - Topic'), { title: 'Glue', artists: ['Bicep'] });
-  assert.equal(isoDuration('PT1H2M3S'), 3723000);
-  const now = Date.UTC(2026, 10, 3, 12);
-  assert.ok(nextReset(now) > now && nextReset(now) - now < 25 * 3600e3);
+test('SoundCloud: Upload-Titel verstehen', () => {
+  assert.deepEqual(parseUpload({ title: 'Bicep - Glue', user: { username: 'Label' } }), { title: 'Glue', artists: ['Bicep'] });
+  assert.deepEqual(parseUpload({ title: 'Glue', metadata_artist: 'Bicep', user: { username: 'Label' } }), { title: 'Glue', artists: ['Bicep'] });
+  assert.deepEqual(parseUpload({ title: 'Glue', user: { username: 'Bicep' } }), { title: 'Glue', artists: ['Bicep'] });
 });
-test('Deezer-Links', () => {
-  assert.deepEqual(parseDeezerUrl('https://www.deezer.com/de/playlist/123?x=1'), { kind: 'playlist', id: '123' });
-  assert.equal(parseDeezerUrl('https://example.com'), null);
+const ENV = { ALLOWED_ORIGINS: 'https://a.test', ALLOWED_REDIRECTS: 'https://a.test/app/', SOUNDCLOUD_CLIENT_ID: 'id', SOUNDCLOUD_CLIENT_SECRET: 'geheim' };
+const call = (body, origin = 'https://a.test', method = 'POST') => new Request('https://f.test/', { method, headers: { Origin: origin, 'Content-Type': 'application/json' }, body: method === 'POST' ? JSON.stringify(body) : undefined });
+test('Token-Funktion: Secret nur serverseitig, fremde Herkunft und Weiterleitung blockiert', async () => {
+  let sent;
+  const fake = async (_, init) => { sent = init.body; return new Response(JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_in: 3600, extra: 'x' })); };
+  assert.equal((await handle(call({}, 'https://boese.test'), ENV, fake)).status, 403);
+  assert.equal((await handle(call({ grant_type: 'authorization_code', code: 'c', code_verifier: 'v', redirect_uri: 'https://boese.test/' }), ENV, fake)).status, 400);
+  assert.equal((await handle(call({ grant_type: 'password' }), ENV, fake)).status, 400);
+  assert.equal(sent, undefined);
+  const res = await handle(call({ grant_type: 'authorization_code', code: 'c', code_verifier: 'v', redirect_uri: 'https://a.test/app/' }), ENV, fake);
+  assert.equal(res.status, 200);
+  assert.equal(sent.get('client_secret'), 'geheim');
+  assert.deepEqual(await res.json(), { access_token: 'a', refresh_token: 'r', expires_in: 3600 });
+  assert.equal(res.headers.get('Access-Control-Allow-Origin'), 'https://a.test');
+  assert.equal((await handle(call(null, 'https://a.test', 'OPTIONS'), ENV, fake)).status, 204);
 });
 test('Offline-Liste vollständig, Version passt', () => {
   const sw = readFileSync('sw.js', 'utf8');

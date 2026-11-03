@@ -4,8 +4,8 @@ import { norm } from './match.js';
 export const VERSION = '0.1.0';
 export const CHANGELOG = [
   { version: '0.1.0', notes: [
-    'Playlists aus Spotify, YouTube, Deezer-Links, Dateien oder Text in Kisten packen',
-    'Kisten nach Spotify und YouTube umziehen, für andere Dienste per Klickliste',
+    'Playlists aus Spotify, SoundCloud, Dateien oder Text in Kisten packen',
+    'Kisten zu Spotify oder SoundCloud umziehen',
     'Unsichere Treffer prüfen, Kisten per Link teilen, alles auch offline',
   ] },
 ];

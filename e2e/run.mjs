@@ -1,8 +1,10 @@
 // Browser-Test mit nachgebauten Dienst-APIs. Start: npm run e2e (Port 5199).
 // Getestet werden Ablauf, Offline und Fehlerpfade. Echte Dienste sind hier nicht beteiligt.
 import { createRequire } from 'node:module';
-import { spawn, execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { extname, join } from 'node:path';
 import assert from 'node:assert/strict';
 
 const require = createRequire(`${execSync('npm root -g').toString().trim()}/`);
@@ -10,8 +12,21 @@ const { chromium, devices } = require('playwright');
 const PORT = 5199, BASE = `http://127.0.0.1:${PORT}/`;
 mkdirSync('e2e/shots', { recursive: true });
 
-const server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { stdio: 'ignore' });
-await new Promise(r => setTimeout(r, 700));
+// Liefert das Repo aus und setzt für den Test SoundCloud-Einstellungen ein.
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.gif': 'image/gif', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' };
+const server = createServer((req, res) => {
+  const path = decodeURIComponent(new URL(req.url, BASE).pathname);
+  if (path === '/src/config.js') {
+    res.writeHead(200, { 'Content-Type': 'text/javascript' });
+    res.end("export const CONFIG = { soundcloudClientId: 'scid', soundcloudTokenUrl: 'https://test.supabase.co/functions/v1/soundcloud-token' };");
+    return;
+  }
+  let file = join('.', path);
+  if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
+  if (!existsSync(file)) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream' });
+  res.end(readFileSync(file));
+}).listen(PORT, '127.0.0.1');
 
 const consoleErrors = [];
 const watch = page => {
@@ -99,7 +114,7 @@ try {
   });
   await page.click('text=Umziehen');
   await page.waitForSelector('#targetName');
-  await page.click('button:has-text("nach Spotify umziehen")');
+  await page.click('button:has-text("Nach Spotify umziehen")');
   await page.waitForSelector('#jobLine');
   assert.match(await page.textContent('#jobLine'), /Wartet auf den Start/);
   ok('Umzug offline eingereiht');
@@ -168,16 +183,6 @@ try {
   ok('Mobil ohne seitliches Scrollen');
   await friendCtx.close();
 
-  /* Klickliste */
-  await page.click('text=Umziehen');
-  await page.click('[role=tab]:has-text("Andere")');
-  await page.click('button:has-text("Apple Music")');
-  await page.waitForSelector('text=0 von 3 abgehakt');
-  await page.locator('.check input').first().check();
-  await page.waitForSelector('text=1 von 3 abgehakt');
-  assert.match(await page.locator('.track a').first().getAttribute('href'), /music\.apple\.com/);
-  ok('Klickliste merkt den Stand');
-
   /* OAuth-Rückweg Spotify */
   await page.evaluate(() => {
     localStorage.removeItem('uk.spotify.session');
@@ -196,67 +201,105 @@ try {
   assert.equal(new URL(page.url()).search, '');
   ok('Spotify-Login prüft state, Code verschwindet aus der Adresse');
 
-  /* Deezer über den abgeschotteten Rahmen, Antworten als JSONP */
-  await ctx.route(/api\.deezer\.com/, route => {
-    const url = new URL(route.request().url());
-    const body = url.pathname.endsWith('/tracks')
-      ? { data: [{ title: 'Windowlicker', duration: 366, artist: { name: 'Aphex Twin' }, album: { title: 'EP' } }], total: 1 }
-      : { title: 'Deezer-Test' };
-    return route.fulfill({ contentType: 'text/javascript', body: `${url.searchParams.get('callback')}(${JSON.stringify(body)})` });
+  /* SoundCloud: Login über Token-Funktion, Quelle, Ziel, Zusammenführen, Limit */
+  const sc = { put: [], token: [], lists: { 'soundcloud:playlists:1': ['soundcloud:tracks:old'] }, limit: false };
+  const upload = (n, title, user = 'Label') => ({ urn: `soundcloud:tracks:${n}`, title, duration: 300000, user: { username: user }, permalink_url: `https://soundcloud.com/x/${n}`, access: 'playable' });
+  await ctx.route(/supabase\.co/, route => {
+    if (route.request().method() === 'OPTIONS') return json(route, {});
+    const body = JSON.parse(route.request().postData());
+    sc.token.push(body);
+    return json(route, { access_token: `tok${sc.token.length}`, refresh_token: `ref${sc.token.length}`, expires_in: 3600 });
   });
-  await page.goto(`${BASE}#/new/link`);
-  await page.fill('#linkUrl', 'https://www.deezer.com/de/playlist/123');
-  await page.click('button:has-text("Einpacken")');
-  await page.waitForSelector('.track:has-text("Windowlicker")');
-  ok('Deezer-Playlist über Sandbox-Rahmen gelesen');
-
-  /* YouTube: Rückweg, Tageslimit, automatische Fortsetzung vorbereitet */
-  const yt = { inserts: 0, searches: 0 };
-  await ctx.route(/googleapis\.com/, route => {
+  await ctx.route(/api\.soundcloud\.com/, route => {
     const req = route.request();
     const url = new URL(req.url());
+    const p = decodeURIComponent(url.pathname);
     if (req.method() === 'OPTIONS') return json(route, {});
-    if (url.pathname.endsWith('/search')) {
-      yt.searches++;
-      if (yt.searches > 1) return json(route, { error: { errors: [{ reason: 'quotaExceeded' }], message: 'quota' } }, 403);
-      return json(route, { items: [{ id: { videoId: 'vid1' }, snippet: { title: 'Aphex Twin - Windowlicker (Official Video)', channelTitle: 'Warp' } }] });
+    assert.match(req.headers().authorization || '', /^OAuth /);
+    if (req.headers().authorization === 'OAuth expired') return json(route, {}, 401);
+    if (p === '/me/playlists') return json(route, { collection: [{ urn: 'soundcloud:playlists:1', title: 'Warm-up Set', track_count: 1 }], next_href: null });
+    if (p === '/me/likes/tracks') return json(route, { collection: [upload(1, 'Aphex Twin - Windowlicker')], next_href: null });
+    if (p === '/playlists/soundcloud:playlists:1' && req.method() === 'GET') return json(route, { urn: 'soundcloud:playlists:1', title: 'Warm-up Set' });
+    if (p.endsWith('/tracks') && p.startsWith('/playlists/')) return json(route, { collection: (sc.lists[p.split('/')[2]] || []).map(urn => ({ urn })), next_href: null });
+    if (p === '/playlists' && req.method() === 'POST') { const urn = 'soundcloud:playlists:2'; sc.lists[urn] = []; return json(route, { urn, permalink_url: 'https://soundcloud.com/me/sets/neu' }, 201); }
+    if (p.startsWith('/playlists/') && req.method() === 'PUT') {
+      const urn = p.split('/')[2];
+      const tracks = JSON.parse(req.postData()).playlist.tracks.map(t => t.urn);
+      sc.put.push(tracks); sc.lists[urn] = tracks;
+      return json(route, { urn, track_count: tracks.length });
     }
-    if (url.pathname.endsWith('/videos')) return json(route, { items: [{ id: 'vid1', contentDetails: { duration: 'PT6M6S' } }] });
-    if (url.pathname.endsWith('/playlists') && req.method() === 'POST') return json(route, { id: 'ytpl' });
-    if (url.pathname.endsWith('/playlists')) return json(route, { items: [], pageInfo: { totalResults: 0 } });
-    if (url.pathname.endsWith('/playlistItems') && req.method() === 'POST') { yt.inserts++; return json(route, { id: 'x' }); }
-    if (url.pathname.endsWith('/playlistItems')) return json(route, { items: [], pageInfo: { totalResults: 0 } });
-    return json(route, { error: { message: 'nicht nachgebaut' } }, 404);
+    if (p === '/tracks') {
+      if (sc.limit) return json(route, {}, 429, { 'Retry-After': '3600' });
+      const q = url.searchParams.get('q');
+      return json(route, { collection: q.includes('Glue') ? [upload(7, 'Bicep - Glue')] : [], next_href: null });
+    }
+    return json(route, { message: `nicht nachgebaut: ${p}` }, 404);
   });
   await page.evaluate(() => {
-    localStorage.setItem('uk.youtube.clientId', '"x.apps.googleusercontent.com"');
-    localStorage.setItem('uk.youtube.state', '"yt.ok"');
+    localStorage.setItem('uk.soundcloud.state', '"sc.ok"');
+    localStorage.setItem('uk.soundcloud.verifier', '"ver"');
   });
-  await page.goto(`${BASE}#access_token=gt&expires_in=3600&state=yt.ok`);
-  await page.reload();
-  await page.waitForFunction(() => localStorage.getItem('uk.youtube.session'));
-  await page.waitForSelector('.box-name:has-text("Deezer-Test")');
-  await page.click('.box-name:has-text("Deezer-Test")');
+  await page.goto(`${BASE}?code=abc&state=sc.ok`);
+  await page.waitForFunction(() => localStorage.getItem('uk.soundcloud.session'));
+  assert.equal(sc.token[0].grant_type, 'authorization_code');
+  assert.equal(JSON.stringify(sc.token[0]).includes('secret'), false);
+  ok('SoundCloud-Login über Token-Funktion, ohne Secret im Browser');
+
+  await page.goto(`${BASE}#/new/soundcloud`);
+  await page.waitForSelector('text=Warm-up Set');
+  await page.check('label:has-text("Gelikte Tracks") input');
+  await page.click('button:has-text("Auswahl einpacken")');
+  await page.waitForSelector('.box-name:has-text("Gelikte Tracks")');
+  await page.click('.box-name:has-text("Gelikte Tracks")');
+  await page.waitForSelector('.track:has-text("Windowlicker")');
+  assert.equal(await page.getAttribute('.track a', 'href'), 'https://soundcloud.com/x/1');
+  ok('SoundCloud-Likes eingelesen, mit Link zum Original');
+
+  await page.goto(`${BASE}#/`);
+  await page.click('.box-name:has-text("Peak Time")');
   await page.click('text=Umziehen');
-  await page.click('[role=tab]:has-text("YouTube")');
-  await page.click('button:has-text("nach YouTube umziehen")');
-  await page.waitForSelector('text=In YouTube öffnen');
-  assert.equal(yt.inserts, 1);
-  ok('YouTube: Anmeldung, Suche, Playlist, Eintrag');
-  await page.goto(`${BASE}#/box/none`);
-  await page.waitForSelector('text=Das gibt es hier nicht mehr');
-  await page.click('text=Zu den Kisten');
+  await page.click('[role=tab]:has-text("SoundCloud")');
+  await page.waitForSelector('label:has-text("Warm-up Set")');
+  assert.ok(await page.locator('.soon li:has-text("Apple Music")').isVisible());
+  await shot(page, 'ziel');
+  await page.click('button:has-text("Nach SoundCloud umziehen")');
+  await page.waitForSelector('text=In SoundCloud öffnen');
+  assert.deepEqual(sc.put.at(-1), ['soundcloud:tracks:7']);
+  ok('Neues SoundCloud-Set angelegt');
+
+  await page.goto(`${BASE}#/`);
+  await page.click('.box-name:has-text("Peak Time")');
+  await page.click('text=Umziehen');
+  await page.click('[role=tab]:has-text("SoundCloud")');
+  await page.click('label:has-text("Warm-up Set")');
+  await page.click('button:has-text("Nach SoundCloud umziehen")');
+  await page.waitForFunction(() => document.body.textContent.includes('Fertig'));
+  assert.deepEqual(sc.lists['soundcloud:playlists:1'], ['soundcloud:tracks:old', 'soundcloud:tracks:7']);
+  ok('Bestehendes Set behält seine Tracks');
+
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('uk.soundcloud.session'));
+    localStorage.setItem('uk.soundcloud.session', JSON.stringify({ ...s, access: 'expired' }));
+  });
+  await page.goto(`${BASE}#/new/soundcloud`);
+  await page.waitForSelector('text=Warm-up Set');
+  assert.equal(sc.token.at(-1).grant_type, 'refresh_token');
+  ok('Abgelaufenes Token wird einmal erneuert');
+
+  sc.limit = true;
+  await page.evaluate(async () => { const r = indexedDB.open('umzugskiste'); await new Promise(o => { r.onsuccess = o; }); const t = r.result.transaction('cache', 'readwrite'); t.objectStore('cache').clear(); });
+  await page.goto(`${BASE}#/`);
   await page.click('.box-name:has-text("Offline gepackt")');
   await page.click('text=Umziehen');
-  await page.click('[role=tab]:has-text("YouTube")');
-  await page.click('button:has-text("nach YouTube umziehen")');
-  await page.waitForSelector('text=Tageslimit');
+  await page.click('[role=tab]:has-text("SoundCloud")');
+  await page.click('button:has-text("Nach SoundCloud umziehen")');
+  await page.waitForSelector('text=SoundCloud-Limit');
   assert.match(await page.textContent('p.notice'), /Weiter ab/);
-  ok('YouTube: Tageslimit pausiert mit Uhrzeit');
+  ok('SoundCloud-Limit pausiert mit Uhrzeit');
 
   /* Layout: Die Seite scrollt nie, auch nicht klein */
   await page.setViewportSize({ width: 360, height: 560 });
-  for (const route of ['#/', '#/new', '#/new/spotify', '#/jobs', '#/settings/spotify', '#/settings/youtube', '#/settings/backup']) {
+  for (const route of ['#/', '#/new', '#/new/spotify', '#/jobs', '#/settings/spotify', '#/settings/soundcloud', '#/settings/backup']) {
     await page.goto(BASE + route);
     await page.waitForTimeout(320);
     const bad = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.body.scrollHeight > innerHeight || document.documentElement.scrollWidth > innerWidth);
@@ -290,7 +333,7 @@ try {
   ok('Änderungen erscheinen nach Update einmal');
   await page.goto(`${BASE}#/jobs`);
   await page.click('.head .icon');
-  assert.match(await page.getAttribute('#feedback', 'href'), /SyncMyMusic\/issues\/new\?body=Version/);
+  assert.match(await page.getAttribute('#feedback', 'href'), /Umzugskiste\/issues\/new\?body=Version/);
   assert.deepEqual(consoleErrors, []);
   ok('Keine Konsolenfehler');
   await ctx.close();
@@ -309,7 +352,7 @@ try {
   await dark.close();
 } finally {
   await browser.close();
-  server.kill();
+  server.close();
 }
 writeFileSync('e2e/shots/.done', 'ok');
 console.log('alle Browser-Tests ok');

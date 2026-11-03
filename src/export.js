@@ -13,8 +13,8 @@ const cell = v => {
 export const csvLine = values => values.map(cell).join(',');
 
 export function toCsv(tracks) {
-  const head = ['title', 'artist', 'album', 'duration_ms', 'isrc', 'spotify_id', 'youtube_id'];
-  const rows = tracks.map(t => csvLine([t.title, t.artists.join('; '), t.album, t.durationMs || '', t.isrc, t.refs.spotify || '', t.refs.youtube || '']));
+  const head = ['title', 'artist', 'album', 'duration_ms', 'isrc', 'spotify_id', 'soundcloud_urn'];
+  const rows = tracks.map(t => csvLine([t.title, t.artists.join('; '), t.album, t.durationMs || '', t.isrc, t.refs.spotify || '', t.refs.soundcloud || '']));
   return `﻿${head.join(',')}\n${rows.join('\n')}\n`;
 }
 export const toText = tracks => `${tracks.map(t => (t.artists.length ? `${artistLine(t)} - ${t.title}` : t.title)).join('\n')}\n`;

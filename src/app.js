@@ -6,10 +6,10 @@ import { parseText, parseFile } from './parse.js';
 import { toCsv, toText, toJson, reportCsv, safeFilename } from './export.js';
 import { encodeShare, decodeShare } from './share.js';
 import { newJob, counts, pick, skip, acceptAllUnsure, confirmReview, retry, delta } from './transfer.js';
-import { adapters, clickServices, serviceName } from './services/index.js';
-import { spotify, redirectUri } from './services/spotify.js';
-import { youtube, SEARCH_LIMIT, UNIT_LIMIT } from './services/youtube.js';
-import { readDeezer, parseDeezerUrl } from './services/deezer.js';
+import { adapters, planned, serviceName } from './services/index.js';
+import { spotify } from './services/spotify.js';
+import { soundcloud } from './services/soundcloud.js';
+import { redirectUri } from './services/pkce.js';
 import { pump, onJob, live, stop, resumeAuthPaused } from './runner.js';
 
 const view = document.getElementById('view');
@@ -17,7 +17,6 @@ const go = hash => { location.hash = hash; };
 let renderId = 0;
 
 const fail = e => toast(e.message || String(e));
-const whenOnline = () => navigator.onLine;
 const OFFLINE_HINT = 'Dafür brauchst du Internet. Text und Dateien gehen auch offline.';
 
 async function saveBox(box) {
@@ -30,6 +29,7 @@ async function saveBox(box) {
 const rootHead = title => h('div.head', {}, h('h1', {}, title), h('button.icon', { type: 'button', 'aria-label': 'Über die App', onClick: showInfo }, 'i'));
 const backLink = href => h('a.back', { href, 'aria-label': 'Zurück' });
 const deepHead = (title, href) => h('div.head.sub', {}, backLink(href), h('h1', {}, title));
+const soon = () => h('div.soon', {}, h('p.muted', {}, 'Vielleicht später'), h('ul', {}, planned.map(name => h('li', { 'aria-disabled': 'true' }, name))));
 const spineSize = () => (innerHeight < 640 ? 36 : 64);
 const sourceLabel = box => {
   if (!box.source) return 'Von Hand gepackt';
@@ -64,7 +64,7 @@ async function homeView() {
 }
 
 /* ---------- Neue Kiste ---------- */
-const TABS = [['text', 'Text'], ['file', 'Datei'], ['link', 'Link'], ['spotify', 'Spotify'], ['youtube', 'YouTube']];
+const TABS = [['text', 'Text'], ['file', 'Datei'], ['link', 'Link'], ['spotify', 'Spotify'], ['soundcloud', 'SoundCloud']];
 
 async function packTracks(name, tracks, source = null) {
   if (!tracks.length) { toast('Darin stehen keine Songs. Schreib pro Zeile einen Song, zum Beispiel: Daft Punk - One More Time'); return null; }
@@ -101,27 +101,24 @@ function fileTab() {
 }
 
 function linkTab() {
-  const input = h('input', { id: 'linkUrl', type: 'url', placeholder: 'https://www.deezer.com/playlist/…', 'aria-label': 'Playlist-Link' });
-  const go1 = btn('Einpacken', async () => {
-    if (!whenOnline()) { toast(OFFLINE_HINT); return; }
+  const input = h('input', { id: 'linkUrl', type: 'url', placeholder: 'Link zu Playlist oder Set', 'aria-label': 'Playlist-Link' });
+  const pack = btn('Einpacken', async () => {
+    if (!navigator.onLine) { toast(OFFLINE_HINT); return; }
     const url = input.value.trim();
+    const adapter = /soundcloud\.com\//.test(url) ? soundcloud : /open\.spotify\.com\//.test(url) ? spotify : null;
+    if (!adapter) { toast('Es gehen Links zu Spotify-Playlists und SoundCloud-Sets.'); return; }
     try {
-      go1.disabled = true;
-      const dz = parseDeezerUrl(url);
-      const sp = url.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?playlist\/([0-9A-Za-z]+)/);
-      const yt = url.match(/[?&]list=([\w-]+)/);
-      let got, source;
-      if (dz) { got = await readDeezer(dz); source = { service: 'deezer', ...dz }; }
-      else if (sp) { need(spotify); source = { service: 'spotify', ref: `playlist:${sp[1]}` }; got = await spotify.readSource(source.ref); }
-      else if (yt) { need(youtube); source = { service: 'youtube', ref: `playlist:${yt[1]}` }; got = await youtube.readSource(source.ref); }
-      else { toast('Diesen Link kenne ich nicht. Es gehen Links zu Deezer-, Spotify- und YouTube-Playlists.'); return; }
-      const box = await packTracks(got.name, got.tracks, source);
+      pack.disabled = true;
+      need(adapter);
+      const ref = await adapter.resolve(url);
+      const got = await adapter.readSource(ref);
+      const box = await packTracks(got.name, got.tracks, { service: adapter.id, ref });
       if (box) go(`#/box/${box.id}`);
-    } catch (e) { fail(e); } finally { go1.disabled = false; }
+    } catch (e) { fail(e); } finally { pack.disabled = false; }
   });
   return h('div.stack', {},
-    h('p', {}, 'Deezer-Playlists und -Alben gehen ohne Anmeldung, wenn sie öffentlich sind. Spotify und YouTube brauchen die Anmeldung.'),
-    input, go1);
+    h('p', {}, 'Füge den Link zu einer Spotify-Playlist oder einem SoundCloud-Set ein. Dafür musst du dort angemeldet sein.'),
+    input, pack);
 }
 
 function need(adapter) {
@@ -129,8 +126,9 @@ function need(adapter) {
 }
 
 function connectHint(adapter) {
-  if (!adapter.hasClientId()) {
-    return h('div.stack', {}, h('p', {}, `Für ${adapter.name} brauchst du einmalig eine eigene Zugangs-ID.`), h('a.btn', { href: '#/settings' }, 'Zu den Diensten'));
+  if (!adapter.isConfigured()) {
+    if (adapter === soundcloud) return h('p', {}, 'SoundCloud wird gerade eingerichtet.');
+    return h('div.stack', {}, h('p', {}, `Für ${adapter.name} brauchst du einmalig eine eigene Zugangs-ID.`), h('a.btn', { href: `#/settings/${adapter.id}` }, 'Einrichten'));
   }
   return h('div.stack', {}, h('p', {}, `Melde dich bei ${adapter.name} an, um deine Playlists zu sehen.`), btn(`Bei ${adapter.name} anmelden`, () => login(adapter)));
 }
@@ -175,7 +173,7 @@ function serviceTab(adapter) {
 }
 
 async function newView(tab = 'text') {
-  const panel = { text: textTab, file: fileTab, link: linkTab, spotify: () => serviceTab(spotify), youtube: () => serviceTab(youtube) }[tab] || textTab;
+  const panel = { text: textTab, file: fileTab, link: linkTab, spotify: () => serviceTab(spotify), soundcloud: () => serviceTab(soundcloud) }[tab] || textTab;
   return h('div.view', {},
     deepHead('Neue Kiste', '#/'),
     h('div.tabs', { role: 'tablist', 'aria-label': 'Woher kommen die Songs?' }, TABS.map(([id, label]) => h('a', {
@@ -195,7 +193,6 @@ async function shareBox(box) {
 
 async function refreshBox(box) {
   const src = box.source;
-  if (src.service === 'deezer') return readDeezer(src);
   const adapter = adapters[src.service];
   need(adapter);
   return adapter.readSource(src.ref);
@@ -205,6 +202,7 @@ function trackRow(t, onRemove) {
   return h('li.track', {},
     h('div.t', {}, h('strong', {}, t.title), h('span', {}, artistLine(t) || 'Künstler unbekannt')),
     t.refs.spotify ? h('a', { href: `https://open.spotify.com/track/${t.refs.spotify}`, target: '_blank', rel: 'noopener' }, 'Spotify') : null,
+    t.refs.soundcloudUrl ? h('a', { href: t.refs.soundcloudUrl, target: '_blank', rel: 'noopener' }, 'SoundCloud') : null,
     onRemove ? h('button.x', { type: 'button', 'aria-label': `${t.title} entfernen`, onClick: onRemove }, '×') : null);
 }
 
@@ -266,7 +264,7 @@ async function boxView(id) {
 async function startJob(box, target) {
   const job = newJob(box, target);
   await store.put('jobs', job);
-  if (target.kind !== 'click') pump().catch(fail);
+  pump().catch(fail);
   go(`#/job/${job.id}`);
 }
 
@@ -276,10 +274,7 @@ function targetPanel(box, adapter) {
   const fixed = [{ id: 'new', name: 'Neue Playlist' }, ...(adapter.canLike ? [{ id: 'likes', name: 'Lieblingssongs' }] : [])];
   const list = picker(fixed, 'new', id => { name.hidden = id !== 'new'; });
   if (navigator.onLine) adapter.listTargets().then(found => list.setItems([...fixed, ...found])).catch(() => {});
-  const info = adapter === youtube
-    ? h('p.muted', {}, `YouTube erlaubt ${SEARCH_LIMIT} Suchen am Tag. Größere Kisten ziehen über mehrere Tage um.`)
-    : null;
-  return h('div.stack.grow', {}, list.el, name, info, btn(`Nach ${adapter.name} umziehen`, () => {
+  return h('div.stack.grow', {}, list.el, name, btn(`Nach ${adapter.name} umziehen`, () => {
     const choice = list.value();
     startJob(box, {
       service: adapter.id, kind: 'api', name: choice.id === 'new' ? (name.value.trim() || box.name) : choice.name,
@@ -291,17 +286,15 @@ function targetPanel(box, adapter) {
 async function moveView(id, service = 'spotify') {
   const box = await store.get('boxes', id);
   if (!box) return missingView();
-  const tabs = [...Object.values(adapters).map(a => [a.id, a.name])];
-  const adapter = adapters[service];
+  const adapter = adapters[service] || spotify;
   return h('div.view', {},
     deepHead('Umziehen', `#/box/${id}`),
     h('p.meta', {}, `${songs(box.tracks.length)} aus ${box.name}`),
-    h('div.tabs', { role: 'tablist', 'aria-label': 'Zieldienst' }, tabs.map(([sid, label]) => h('a', {
-      role: 'tab', href: `#/box/${id}/move/${sid}`, 'aria-selected': String(sid === service),
-    }, label)), h('a', { role: 'tab', href: `#/box/${id}/move/click`, 'aria-selected': String(service === 'click') }, 'Andere')),
-    h('div.sheet.fill', {}, adapter ? targetPanel(box, adapter) : h('div.stack.grow', {},
-      h('p', {}, 'Diese Dienste lassen sich aus dem Browser nicht direkt ansteuern. Die Klickliste öffnet jeden Song im Dienst, und du hakst ab, was du gespeichert hast.'),
-      h('div.grid.scroll', {}, Object.entries(clickServices).map(([sid, s]) => btn(s.name, () => startJob(box, { service: sid, kind: 'click', name: s.name }).catch(fail), 'ghost'))))));
+    h('div.tabs', { role: 'tablist', 'aria-label': 'Zieldienst' }, Object.values(adapters).map(a => h('a', {
+      role: 'tab', href: `#/box/${id}/move/${a.id}`, 'aria-selected': String(a === adapter),
+    }, a.name))),
+    h('div.sheet.fill', {}, targetPanel(box, adapter)),
+    soon());
 }
 
 /* ---------- Umzüge ---------- */
@@ -315,7 +308,7 @@ const jobSpine = (job, height) => {
 };
 const line = job => {
   const c = counts(job);
-  return job.target.kind === 'click' ? `${c.written} von ${c.total} abgehakt` : `${STATUS[job.status]}, ${c.written} von ${c.total} übertragen`;
+  return `${STATUS[job.status]}, ${c.written} von ${c.total} übertragen`;
 };
 
 async function jobsView() {
@@ -331,7 +324,7 @@ async function jobsView() {
 
 const searchUrl = (service, q) => (service === 'spotify'
   ? `https://open.spotify.com/search/${encodeURIComponent(q)}`
-  : `https://music.youtube.com/search?q=${encodeURIComponent(q)}`);
+  : `https://soundcloud.com/search?q=${encodeURIComponent(q)}`);
 const queryOf = t => `${t.artists[0] || ''} ${t.title}`.trim();
 
 function reviewBlock(job, save) {
@@ -347,20 +340,6 @@ function reviewBlock(job, save) {
       btn('Auslassen', async () => { skip(job, item.key); await save(); render(); }, 'ghost small')), 25)));
 }
 
-function clickJobView(job, save) {
-  const service = clickServices[job.target.service];
-  return paged(job.items, item => h('li.track', {},
-    h('label.check', {},
-      h('input', { type: 'checkbox', checked: item.state === 'written', 'aria-label': `${item.track.title} erledigt`, onChange: async e => {
-        item.state = e.target.checked ? 'written' : 'pending';
-        job.status = job.items.every(i => i.state === 'written') ? 'done' : 'queued';
-        await save();
-        document.getElementById('jobLine').textContent = `Nach ${service.name}. ${line(job)}`;
-      } }),
-      h('span.t', {}, h('strong', {}, item.track.title), h('span', {}, artistLine(item.track)))),
-    h('a', { href: service.url(queryOf(item.track)), target: '_blank', rel: 'noopener' }, 'Öffnen')));
-}
-
 async function jobView(id) {
   const job = live(id) || await store.get('jobs', id);
   if (!job) return missingView();
@@ -373,9 +352,6 @@ async function jobView(id) {
     jobSpine(job, spineSize()),
   ];
   const del = confirmBtn('Löschen', 'Wirklich löschen?', async () => { await store.del('jobs', id); go('#/jobs'); });
-  if (job.target.kind === 'click') {
-    return h('div.view', {}, parts, h('div.sheet.fill', {}, h('div.scroll', {}, clickJobView(job, save))), h('div.actions.bar', {}, del));
-  }
   const adapter = adapters[job.target.service];
   parts.push(h('ul.legend', {},
     h('li.l-written', {}, `${c.written} übertragen`),
@@ -444,10 +420,16 @@ async function sharedView() {
 }
 
 /* ---------- Dienste ---------- */
+const connected = adapter => h('div.stack', {}, h('p.ok', {}, `Bei ${adapter.name} angemeldet.`), btn('Abmelden', () => { adapter.logout(); render(); }, 'ghost'));
+
+function soundcloudPanel() {
+  if (soundcloud.isConnected()) return connected(soundcloud);
+  if (!soundcloud.isConfigured()) return h('p', {}, 'SoundCloud wird gerade eingerichtet. Ohne eigene Zugangsdaten für dich.');
+  return h('div.stack', {}, h('p', {}, 'Melde dich an, um Sets und gelikte Tracks zu nutzen.'), btn('Bei SoundCloud anmelden', () => login(soundcloud)));
+}
+
 function servicePanel(adapter, { label, steps }) {
-  if (adapter.isConnected()) {
-    return h('div.stack', {}, h('p.ok', {}, `Bei ${adapter.name} angemeldet.`), btn('Abmelden', () => { adapter.logout(); render(); }, 'ghost'));
-  }
+  if (adapter.isConnected()) return connected(adapter);
   const id = h('input', { value: adapter.clientId(), 'aria-label': label, placeholder: label, autocomplete: 'off', spellcheck: 'false' });
   return h('div.stack.grow', {},
     h('p', {}, 'Einmalig eine eigene Zugangs-ID eintragen. Sie bleibt in diesem Browser.'),
@@ -480,7 +462,7 @@ function backupPanel() {
     h('label.field', {}, 'Sicherung einspielen', backupIn),
     confirmBtn('Alle Daten löschen', 'Wirklich alles löschen?', async () => {
       for (const st of ['boxes', 'jobs', 'cache']) await store.clear(st);
-      adapters.spotify.logout(); adapters.youtube.logout();
+      Object.values(adapters).forEach(a => a.logout());
       toast('Alle Daten sind gelöscht.');
       go('#/');
     }));
@@ -488,31 +470,24 @@ function backupPanel() {
 
 async function settingsView(tab = 'spotify') {
   const uri = redirectUri();
-  const q = youtube.quota();
   const panels = {
     spotify: () => servicePanel(spotify, { label: 'Spotify Client ID', steps: [
       h('span', {}, 'Im ', h('a', { href: 'https://developer.spotify.com/dashboard', target: '_blank', rel: 'noopener' }, 'Spotify Developer Dashboard'), ' eine App mit Web API anlegen. Das braucht Spotify Premium.'),
       h('span', {}, 'Als Redirect URI eintragen: ', h('code', {}, uri)),
       'Client ID kopieren und unten einfügen.',
     ] }),
-    youtube: () => h('div.stack.grow', {},
-      servicePanel(youtube, { label: 'Google OAuth Client ID', steps: [
-        h('span', {}, 'In der ', h('a', { href: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com', target: '_blank', rel: 'noopener' }, 'Google Cloud Console'), ' ein Projekt anlegen und YouTube Data API v3 aktivieren.'),
-        'OAuth-Client vom Typ Webanwendung anlegen und dich als Testnutzer eintragen.',
-        h('span', {}, 'Als Weiterleitungs-URI eintragen: ', h('code', {}, uri)),
-        'Client ID kopieren und unten einfügen.',
-      ] }),
-      h('p.muted', {}, `Heute: ${q.searches} von ${SEARCH_LIMIT} Suchen, ${q.units} von ${UNIT_LIMIT} Einheiten.`)),
+    soundcloud: soundcloudPanel,
     backup: backupPanel,
   };
-  const tabs = [['spotify', 'Spotify'], ['youtube', 'YouTube'], ['backup', 'Sicherung']];
+  const tabs = [['spotify', 'Spotify'], ['soundcloud', 'SoundCloud'], ['backup', 'Sicherung']];
   const active = panels[tab] ? tab : 'spotify';
   return h('div.view', {},
     rootHead('Dienste'),
     h('div.tabs', { role: 'tablist', 'aria-label': 'Einstellungen' }, tabs.map(([id, label]) => h('a', {
       role: 'tab', href: `#/settings/${id}`, 'aria-selected': String(id === active),
     }, label))),
-    h('div.sheet.fill', {}, panels[active]()));
+    h('div.sheet.fill', {}, panels[active]()),
+    soon());
 }
 
 const missingView = () => h('div.view', {}, deepHead('Nicht gefunden', '#/'), h('div.empty', {}, h('p', {}, 'Das gibt es hier nicht mehr.'), h('a.btn', { href: '#/' }, 'Zu den Kisten')));
@@ -541,13 +516,13 @@ addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent 
 function showInfo() {
   dialog('Umzugskiste', close => [h('div.stack', {},
     h('p', {}, 'Läuft nur in deinem Browser. Kisten liegen auf diesem Gerät, Anfragen gehen direkt an den jeweiligen Dienst.'),
-    h('p.muted', {}, 'Für Deezer-Links läuft ein Deezer-Skript abgeschottet, ohne Zugriff auf deine Daten.'),
+    h('p.muted', {}, 'Die SoundCloud-Anmeldung läuft kurz über eine kleine Funktion, die nichts speichert.'),
     h('div.grid', {},
       btn('Neues', () => { close(); showChangelog(); }, 'ghost'),
-      h('a.btn.ghost', { id: 'feedback', target: '_blank', rel: 'noopener', href: `https://github.com/Oliver19xx/SyncMyMusic/issues/new?body=${encodeURIComponent(`Version ${VERSION}\n\n`)}` }, 'Feedback'),
+      h('a.btn.ghost', { id: 'feedback', target: '_blank', rel: 'noopener', href: `https://github.com/Oliver19xx/Umzugskiste/issues/new?body=${encodeURIComponent(`Version ${VERSION}\n\n`)}` }, 'Feedback'),
       installEvent ? btn('Installieren', () => installEvent.prompt(), 'ghost') : null),
     installEvent ? null : h('p.muted', {}, 'iPhone: In Safari auf Teilen, dann „Zum Home-Bildschirm“.'),
-    h('p.muted', {}, `Version ${VERSION}. Nicht verbunden mit Spotify, Google, Apple, Deezer oder TIDAL.`))]);
+    h('p.muted', {}, `Version ${VERSION}. Nicht verbunden mit Spotify oder SoundCloud.`))]);
 }
 
 /* ---------- Router ---------- */
@@ -619,20 +594,13 @@ async function handleCallbacks() {
     sessionStorage.removeItem('uk.return');
     history.replaceState(null, '', location.pathname + target);
   };
-  if ((query.get('state') || '').startsWith('sp.')) {
+  const state = query.get('state') || '';
+  const adapter = state.startsWith('sp.') ? spotify : state.startsWith('sc.') ? soundcloud : null;
+  if (adapter) {
     try {
-      if (query.get('error')) throw new Error('Die Spotify-Anmeldung wurde abgebrochen.');
-      await spotify.finishLogin(query.get('code'), query.get('state'));
-      await resumeAuthPaused('spotify');
-    } catch (e) { fail(e); }
-    back();
-  }
-  const fragment = new URLSearchParams(location.hash.slice(1));
-  if ((fragment.get('state') || '').startsWith('yt.')) {
-    try {
-      if (!fragment.get('access_token')) throw new Error('Die YouTube-Anmeldung wurde abgebrochen.');
-      youtube.finishLogin(fragment);
-      await resumeAuthPaused('youtube');
+      if (query.get('error')) throw new Error(`Die ${adapter.name}-Anmeldung wurde abgebrochen.`);
+      await adapter.finishLogin(query.get('code'), state);
+      await resumeAuthPaused(adapter.id);
     } catch (e) { fail(e); }
     back();
   }

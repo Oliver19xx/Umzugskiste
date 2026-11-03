@@ -2,6 +2,7 @@
 // Pfade folgen den Dev-Mode-Regeln seit Februar 2026 (Suche max. 10, /items, /me/library).
 import { makeTrack } from '../model.js';
 import { AuthError, OfflineError, QuotaError } from '../errors.js';
+import { random, challenge, redirectUri } from './pkce.js';
 
 const ACCOUNTS = 'https://accounts.spotify.com';
 const API = 'https://api.spotify.com/v1';
@@ -13,10 +14,6 @@ const load = k => { try { return JSON.parse(localStorage.getItem(`uk.spotify.${k
 const save = (k, v) => { try { localStorage.setItem(`uk.spotify.${k}`, JSON.stringify(v)); } catch { /* Speicher gesperrt */ } };
 const drop = k => { try { localStorage.removeItem(`uk.spotify.${k}`); } catch { /* Speicher gesperrt */ } };
 
-const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-const random = () => b64url(crypto.getRandomValues(new Uint8Array(48)));
-
-export const redirectUri = () => location.origin + location.pathname;
 
 async function tokenRequest(params) {
   const res = await fetch(`${ACCOUNTS}/api/token`, {
@@ -45,6 +42,7 @@ async function api(path, opts = {}) {
   if (Date.now() > session.exp) session = await refresh();
   const url = path.startsWith('http') ? path : API + path;
   let renewed = false;
+  let tries = 0;
   for (;;) {
     let res;
     try {
@@ -55,7 +53,8 @@ async function api(path, opts = {}) {
       });
     } catch { throw new OfflineError('offline'); }
     if (res.status === 429) {
-      const wait = Number(res.headers.get('Retry-After')) || 1;
+      tries += 1;
+      const wait = Number(res.headers.get('Retry-After')) || (tries > 3 ? 900 : 2 ** (tries - 1));
       if (wait > MAX_WAIT) throw new QuotaError(`Spotify drosselt gerade. Es geht in ${Math.ceil(wait / 60)} Minuten weiter.`, Date.now() + wait * 1000);
       await sleep(wait * 1000);
       continue;
@@ -100,7 +99,7 @@ const searchTracks = async (q, limit) => {
 
 export const spotify = {
   id: 'spotify', name: 'Spotify', batchSize: 100, canLike: true,
-  hasClientId: () => !!load('clientId'),
+  isConfigured: () => !!load('clientId'),
   clientId: () => load('clientId') || '',
   setClientId(id) { save('clientId', id.trim()); },
   isConnected: () => !!load('session'),
@@ -111,10 +110,9 @@ export const spotify = {
     if (!clientId) throw new Error('Trage zuerst deine Spotify Client ID ein.');
     const verifier = random(), state = `sp.${random()}`;
     save('verifier', verifier); save('state', state);
-    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     location.href = `${ACCOUNTS}/authorize?${new URLSearchParams({
       response_type: 'code', client_id: clientId, redirect_uri: redirectUri(), scope: SCOPES,
-      code_challenge_method: 'S256', code_challenge: challenge, state,
+      code_challenge_method: 'S256', code_challenge: await challenge(verifier), state,
     })}`;
   },
 
@@ -145,6 +143,12 @@ export const spotify = {
       if (e.status === 403) throw new Error('Spotify gibt nur Songs aus eigenen und kollaborativen Playlists heraus. Kopiere die Playlist zuerst in der Spotify-App.');
       throw e;
     }
+  },
+
+  async resolve(url) {
+    const m = url.match(/open\.spotify\.com\/(?:intl-[a-z]+\/)?playlist\/([0-9A-Za-z]+)/);
+    if (!m) throw new Error('Das ist kein Link zu einer Spotify-Playlist.');
+    return `playlist:${m[1]}`;
   },
 
   async search(track) {

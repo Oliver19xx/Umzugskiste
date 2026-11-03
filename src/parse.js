@@ -61,7 +61,7 @@ const COLUMNS = {
   isrc: ['isrc'],
   durationMs: ['duration_ms', 'duration (ms)', 'track duration (ms)'],
   spotify: ['spotify_id', 'track uri', 'spotify - id', 'spotify id', 'uri'],
-  youtube: ['youtube_id', 'youtube id'],
+  soundcloud: ['soundcloud_urn'],
 };
 const unguard = v => String(v ?? '').replace(/^'(?=[=+\-@])/, '').trim();
 
@@ -77,7 +77,7 @@ export function parseCsv(text) {
     const refs = {};
     const sp = get('spotify').replace(/^spotify:track:/, '');
     if (/^[0-9A-Za-z]{22}$/.test(sp)) refs.spotify = sp;
-    if (get('youtube')) refs.youtube = get('youtube');
+    if (get('soundcloud')) refs.soundcloud = get('soundcloud');
     return makeTrack({
       title: get('title'), artists: splitArtists(get('artist')), album: get('album'),
       durationMs: get('durationMs'), isrc: get('isrc'), refs,
