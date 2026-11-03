@@ -1,0 +1,11 @@
+{
+  "name": "umzugskiste",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 5173 --bind 127.0.0.1",
+    "test": "node --test test/*.test.js",
+    "e2e": "node e2e/run.mjs"
+  }
+}

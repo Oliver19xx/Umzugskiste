@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://api.deezer.com">
+<title>Deezer</title>
+<script>
+// Läuft im sandbox-Rahmen ohne eigene Origin: kein Zugriff auf Speicher oder Anmeldungen der App.
+var ALLOWED = /^(playlist|album)\/\d+(\/tracks\?limit=\d+&index=\d+)?$/;
+var timer;
+function reply(body) { clearTimeout(timer); parent.postMessage({ dz: 'data', body: body }, '*'); }
+window.dzCallback = reply;
+addEventListener('message', function (e) {
+  if (e.source !== parent || !e.data || e.data.dz !== 'get' || !ALLOWED.test(e.data.path)) return;
+  var join = e.data.path.indexOf('?') < 0 ? '?' : '&';
+  var s = document.createElement('script');
+  s.src = 'https://api.deezer.com/' + e.data.path + join + 'output=jsonp&callback=dzCallback';
+  s.onerror = function () { reply({ error: 'network' }); };
+  timer = setTimeout(function () { reply({ error: 'timeout' }); }, 8000);
+  document.head.appendChild(s);
+});
+parent.postMessage({ dz: 'ready' }, '*');
+</script>
