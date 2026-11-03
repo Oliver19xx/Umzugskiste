@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; connect-src 'self' https://api.spotify.com https://accounts.spotify.com https://api.soundcloud.com https://*.supabase.co; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Umzugskiste</title>
+<meta name="description" content="Zieht Playlists von einem Musikdienst zum anderen um. Läuft im Browser, ohne Server.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Umzugskiste">
+</head>
+<body>
+<div class="app">
+<div id="net" class="net" hidden>Offline</div>
+<div id="update" class="notice" hidden></div>
+<main id="view" tabindex="-1"></main>
+<nav class="tabbar" aria-label="Hauptmenü">
+  <a href="#/" data-nav="home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h18v11H3zM3 9l2-5h14l2 5M9 13h6"/></svg>Kisten</a>
+  <a href="#/jobs" data-nav="jobs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4"/></svg>Umzüge</a>
+  <a href="#/settings" data-nav="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>Dienste</a>
+</nav>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<noscript>Umzugskiste braucht JavaScript.</noscript>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
