@@ -11,8 +11,8 @@ export const SEARCH_LIMIT = 100;
 export const UNIT_LIMIT = 10000;
 
 const load = k => { try { return JSON.parse(localStorage.getItem(`uk.youtube.${k}`)); } catch { return null; } };
-const save = (k, v) => localStorage.setItem(`uk.youtube.${k}`, JSON.stringify(v));
-const drop = k => localStorage.removeItem(`uk.youtube.${k}`);
+const save = (k, v) => { try { localStorage.setItem(`uk.youtube.${k}`, JSON.stringify(v)); } catch { /* Speicher gesperrt */ } };
+const drop = k => { try { localStorage.removeItem(`uk.youtube.${k}`); } catch { /* Speicher gesperrt */ } };
 
 const ptDay = ms => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(ms);
 export function nextReset(now = Date.now()) {
@@ -32,7 +32,7 @@ function spend(units, searches = 0) {
   q.units += units; q.searches += searches;
   save('quota', q);
 }
-const limitError = () => new QuotaError('Das YouTube-Tageslimit ist erreicht. Der Umzug läuft nach dem Neustart des Limits automatisch weiter, sobald die App offen ist.', nextReset());
+const limitError = () => new QuotaError('YouTube-Tageslimit erreicht. Es geht automatisch weiter, wenn die App offen ist.', nextReset());
 
 async function api(path, { method = 'GET', params = {}, body, units = 1 } = {}) {
   const session = load('session');

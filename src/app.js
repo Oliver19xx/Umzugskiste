@@ -1,7 +1,7 @@
 // Oberfläche: Hash-Router und Ansichten. Logik liegt in den anderen Modulen.
-import { h, btn, confirmBtn, toast, download, paged, spine, sleeveColor, stateColor } from './ui.js';
+import { h, btn, confirmBtn, toast, download, paged, spine, sleeveColor, stateColor, dialog, picker } from './ui.js';
 import * as store from './store.js';
-import { VERSION, makeBox, makeTrack, songs, artistLine, trackKey, dedupe } from './model.js';
+import { VERSION, CHANGELOG, makeBox, makeTrack, songs, artistLine, trackKey, dedupe } from './model.js';
 import { parseText, parseFile } from './parse.js';
 import { toCsv, toText, toJson, reportCsv, safeFilename } from './export.js';
 import { encodeShare, decodeShare } from './share.js';
@@ -26,30 +26,41 @@ async function saveBox(box) {
   return box;
 }
 
-const heading = (title, ...actions) => h('div.head', {}, h('h1', {}, title), actions.length ? h('div.actions', {}, actions) : null);
+// Hauptseiten: großer Titel mit Info-Knopf. Unterseiten: Zurück-Pfeil, keine Tab-Leiste.
+const rootHead = title => h('div.head', {}, h('h1', {}, title), h('button.icon', { type: 'button', 'aria-label': 'Über die App', onClick: showInfo }, 'i'));
+const backLink = href => h('a.back', { href, 'aria-label': 'Zurück' });
+const deepHead = (title, href) => h('div.head.sub', {}, backLink(href), h('h1', {}, title));
+const spineSize = () => (innerHeight < 640 ? 36 : 64);
 const sourceLabel = box => {
   if (!box.source) return 'Von Hand gepackt';
   return `Aus ${serviceName(box.source.service)}`;
 };
 
 /* ---------- Kisten ---------- */
+function explainer() {
+  return h('picture.explainer', {},
+    h('source', { media: '(prefers-reduced-motion: reduce)', srcset: 'assets/explainer.png' }),
+    h('img', { src: 'assets/explainer.gif', alt: 'Eine Playlist wird eingepackt, abgeglichen und im neuen Dienst eingetragen.' }));
+}
+
 async function homeView() {
   const boxes = (await store.all('boxes')).sort((a, b) => b.updatedAt - a.updatedAt);
-  const add = h('a.btn', { href: '#/new' }, 'Neue Kiste');
+  const add = h('a.btn.wide', { href: '#/new' }, 'Neue Kiste');
   if (!boxes.length) {
-    return h('div.intro', {},
-      h('h1', {}, 'Pack deine Musik ein und nimm sie mit.'),
-      h('p', {}, 'Lade Playlists aus einem Musikdienst, aus einer Datei oder als Text in eine Kiste. Von dort ziehen sie zu einem anderen Dienst um.'),
-      h('p', {}, 'Alles bleibt auf diesem Gerät. Es gibt kein Konto und keinen Server.'),
+    return h('div.view.intro', {},
+      h('div.head', {}, h('h1.wordmark', {}, 'Umzugskiste'), h('button.icon', { type: 'button', 'aria-label': 'Über die App', onClick: showInfo }, 'i')),
+      explainer(),
+      h('p', {}, 'Nimm deine Playlists mit zum nächsten Musikdienst. Ohne Konto, alles bleibt auf dem Gerät.'),
       add);
   }
-  return h('div', {},
-    heading('Deine Kisten', add),
-    h('ul.boxes', {}, boxes.map(box => h('li', {},
+  return h('div.view', {},
+    rootHead('Kisten'),
+    h('ul.boxes.fill', {}, boxes.map(box => h('li', {},
       h('a.box', { href: `#/box/${box.id}` },
         h('span.box-name', {}, box.name),
         h('span.box-meta', {}, `${songs(box.tracks.length)}, ${sourceLabel(box)}`),
-        spine(box.tracks, { colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }))))));
+        spine(box.tracks, { height: 30, colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }))))),
+    h('div.actions.bar', {}, add));
 }
 
 /* ---------- Neue Kiste ---------- */
@@ -64,7 +75,7 @@ async function packTracks(name, tracks, source = null) {
 function textTab() {
   const name = h('input', { id: 'textName', placeholder: 'Name der Kiste', 'aria-label': 'Name der Kiste' });
   const area = h('textarea', { id: 'textBody', rows: 10, 'aria-label': 'Songliste', placeholder: 'Pro Zeile ein Song:\nDaft Punk - One More Time\nBicep - Glue' });
-  return h('div.stack', {}, name, area, btn('Einpacken', async () => {
+  return h('div.stack.grow', {}, name, area, btn('Einpacken', async () => {
     const box = await packTracks(name.value, parseText(area.value));
     if (box) go(`#/box/${box.id}`);
   }));
@@ -133,7 +144,7 @@ function login(adapter) {
 function serviceTab(adapter) {
   if (!adapter.isConnected()) return connectHint(adapter);
   if (!navigator.onLine) return h('p', {}, OFFLINE_HINT);
-  const list = h('ul.rows', {}, h('li.muted', {}, 'Lade Playlists…'));
+  const list = h('ul.rows.scroll', {}, h('li.muted', {}, 'Lade Playlists…'));
   const status = h('p.muted', { role: 'status' });
   const chosen = new Set();
   let sources = [];
@@ -160,17 +171,17 @@ function serviceTab(adapter) {
       h('span', {}, s.name),
       s.total !== null ? h('span.muted', {}, songs(s.total)) : null))));
   }).catch(e => { list.replaceChildren(h('li', {}, e.message)); });
-  return h('div.stack', {}, list, status, action);
+  return h('div.stack.grow', {}, list, status, action);
 }
 
 async function newView(tab = 'text') {
   const panel = { text: textTab, file: fileTab, link: linkTab, spotify: () => serviceTab(spotify), youtube: () => serviceTab(youtube) }[tab] || textTab;
-  return h('div', {},
-    heading('Neue Kiste'),
+  return h('div.view', {},
+    deepHead('Neue Kiste', '#/'),
     h('div.tabs', { role: 'tablist', 'aria-label': 'Woher kommen die Songs?' }, TABS.map(([id, label]) => h('a', {
       role: 'tab', href: `#/new/${id}`, 'aria-selected': String(id === tab),
     }, label))),
-    h('div.sheet', {}, panel()));
+    h('div.sheet.fill', {}, panel()));
 }
 
 /* ---------- Kiste ---------- */
@@ -200,13 +211,13 @@ function trackRow(t, onRemove) {
 async function boxView(id) {
   const box = await store.get('boxes', id);
   if (!box) return missingView();
+  const save = () => { box.updatedAt = Date.now(); return store.put('boxes', box); };
   const rename = h('input.title-input', {
     value: box.name, 'aria-label': 'Name der Kiste',
-    onChange: async e => { box.name = e.target.value.trim() || box.name; box.updatedAt = Date.now(); await store.put('boxes', box); },
+    onChange: async e => { box.name = e.target.value.trim() || box.name; await save(); },
   });
-  const save = () => { box.updatedAt = Date.now(); return store.put('boxes', box); };
   const filter = h('input', { type: 'search', placeholder: 'In der Kiste suchen', 'aria-label': 'In der Kiste suchen' });
-  const holder = h('div');
+  const holder = h('div.scroll');
   const show = () => {
     const q = filter.value.trim().toLowerCase();
     const list = box.tracks.filter(t => !q || `${t.title} ${artistLine(t)}`.toLowerCase().includes(q));
@@ -218,32 +229,37 @@ async function boxView(id) {
   };
   filter.addEventListener('input', show);
   show();
-  return h('div', {},
-    rename,
+  const refresh = async () => {
+    if (!navigator.onLine) { toast(OFFLINE_HINT); return; }
+    try {
+      const before = new Set(box.tracks.map(trackKey));
+      const fresh = dedupe((await refreshBox(box)).tracks);
+      // Sicherheitsbremse: Eine leere Antwort darf keine volle Kiste leeren.
+      if (!fresh.length && box.tracks.length) { toast('Der Dienst liefert gerade keine Songs. Die Kiste bleibt unverändert.'); return; }
+      const added = fresh.filter(t => !before.has(trackKey(t))).length;
+      box.tracks = fresh;
+      await save();
+      toast(`${songs(added)} neu, jetzt ${songs(fresh.length)} in der Kiste.`);
+      render();
+    } catch (e) { fail(e); }
+  };
+  const more = () => dialog('Mehr', close => [
+    h('div.grid', {},
+      btn('CSV exportieren', () => { download(`${safeFilename(box.name)}.csv`, toCsv(box.tracks), 'text/csv'); close(); }, 'ghost'),
+      btn('Text exportieren', () => { download(`${safeFilename(box.name)}.txt`, toText(box.tracks)); close(); }, 'ghost'),
+      btn('JSON exportieren', () => { download(`${safeFilename(box.name)}.json`, toJson(box), 'application/json'); close(); }, 'ghost'),
+      box.source ? btn('Aktualisieren', () => { close(); refresh(); }, 'ghost') : null,
+      confirmBtn('Kiste löschen', 'Wirklich löschen?', async () => { close(); await store.del('boxes', id); go('#/'); })),
+  ]);
+  return h('div.view', {},
+    h('div.head.sub', {}, backLink('#/'), rename),
     h('p.meta', {}, `${songs(box.tracks.length)}, ${sourceLabel(box)}`),
-    spine(box.tracks, { height: 72, colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }),
-    h('div.actions.main', {},
-      h('a.btn', { href: `#/box/${id}/move` }, 'Umziehen'),
+    spine(box.tracks, { height: spineSize(), colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }),
+    h('div.sheet.fill', {}, filter, holder),
+    h('div.actions.bar', {},
+      h('a.btn.wide', { href: `#/box/${id}/move` }, 'Umziehen'),
       btn('Teilen', () => shareBox(box).catch(fail), 'ghost'),
-      h('details.menu', {}, h('summary.btn.ghost', {}, 'Exportieren'), h('div', {},
-        btn('CSV', () => download(`${safeFilename(box.name)}.csv`, toCsv(box.tracks), 'text/csv'), 'ghost'),
-        btn('Text', () => download(`${safeFilename(box.name)}.txt`, toText(box.tracks)), 'ghost'),
-        btn('JSON', () => download(`${safeFilename(box.name)}.json`, toJson(box), 'application/json'), 'ghost'))),
-      box.source ? btn('Aktualisieren', async () => {
-        if (!navigator.onLine) { toast(OFFLINE_HINT); return; }
-        try {
-          const before = new Set(box.tracks.map(trackKey));
-          const got = await refreshBox(box);
-          const fresh = dedupe(got.tracks);
-          const added = fresh.filter(t => !before.has(trackKey(t))).length;
-          box.tracks = fresh;
-          await save();
-          toast(`${songs(added)} neu, jetzt ${songs(fresh.length)} in der Kiste.`);
-          render();
-        } catch (e) { fail(e); }
-      }, 'ghost') : null,
-      confirmBtn('Löschen', 'Wirklich löschen?', async () => { await store.del('boxes', id); go('#/'); })),
-    h('div.sheet', {}, filter, holder));
+      btn('Mehr', more, 'ghost')));
 }
 
 /* ---------- Umzug anlegen ---------- */
@@ -257,22 +273,17 @@ async function startJob(box, target) {
 function targetPanel(box, adapter) {
   if (!adapter.isConnected()) return connectHint(adapter);
   const name = h('input', { id: 'targetName', value: box.name, 'aria-label': 'Name der neuen Playlist' });
-  const select = h('select', { id: 'targetList', 'aria-label': 'Wohin?', onChange: () => { name.hidden = select.value !== 'new'; } },
-    h('option', { value: 'new' }, 'Neue Playlist'),
-    adapter.canLike ? h('option', { value: 'likes' }, 'Lieblingssongs') : null);
-  if (navigator.onLine) {
-    adapter.listTargets().then(lists => select.append(...lists.map(p => h('option', { value: p.id }, p.name)))).catch(() => {});
-  }
+  const fixed = [{ id: 'new', name: 'Neue Playlist' }, ...(adapter.canLike ? [{ id: 'likes', name: 'Lieblingssongs' }] : [])];
+  const list = picker(fixed, 'new', id => { name.hidden = id !== 'new'; });
+  if (navigator.onLine) adapter.listTargets().then(found => list.setItems([...fixed, ...found])).catch(() => {});
   const info = adapter === youtube
-    ? h('p.muted', {}, `YouTube erlaubt ${SEARCH_LIMIT} Suchen am Tag. Größere Kisten ziehen über mehrere Tage um und laufen weiter, sobald die App offen ist.`)
+    ? h('p.muted', {}, `YouTube erlaubt ${SEARCH_LIMIT} Suchen am Tag. Größere Kisten ziehen über mehrere Tage um.`)
     : null;
-  return h('div.stack', {}, select, name, info, btn(`Nach ${adapter.name} umziehen`, () => {
-    const choice = select.value;
-    const opt = select.selectedOptions[0];
+  return h('div.stack.grow', {}, list.el, name, info, btn(`Nach ${adapter.name} umziehen`, () => {
+    const choice = list.value();
     startJob(box, {
-      service: adapter.id, kind: 'api', name: choice === 'new' ? (name.value.trim() || box.name) : opt.textContent,
-      playlistId: choice === 'new' ? null : choice,
-      url: null,
+      service: adapter.id, kind: 'api', name: choice.id === 'new' ? (name.value.trim() || box.name) : choice.name,
+      playlistId: choice.id === 'new' ? null : choice.id, url: null,
     }).catch(fail);
   }));
 }
@@ -282,14 +293,15 @@ async function moveView(id, service = 'spotify') {
   if (!box) return missingView();
   const tabs = [...Object.values(adapters).map(a => [a.id, a.name])];
   const adapter = adapters[service];
-  return h('div', {},
-    heading(`${box.name} umziehen`),
+  return h('div.view', {},
+    deepHead('Umziehen', `#/box/${id}`),
+    h('p.meta', {}, `${songs(box.tracks.length)} aus ${box.name}`),
     h('div.tabs', { role: 'tablist', 'aria-label': 'Zieldienst' }, tabs.map(([sid, label]) => h('a', {
       role: 'tab', href: `#/box/${id}/move/${sid}`, 'aria-selected': String(sid === service),
     }, label)), h('a', { role: 'tab', href: `#/box/${id}/move/click`, 'aria-selected': String(service === 'click') }, 'Andere')),
-    h('div.sheet', {}, adapter ? targetPanel(box, adapter) : h('div.stack', {},
+    h('div.sheet.fill', {}, adapter ? targetPanel(box, adapter) : h('div.stack.grow', {},
       h('p', {}, 'Diese Dienste lassen sich aus dem Browser nicht direkt ansteuern. Die Klickliste öffnet jeden Song im Dienst, und du hakst ab, was du gespeichert hast.'),
-      h('div.grid', {}, Object.entries(clickServices).map(([sid, s]) => btn(s.name, () => startJob(box, { service: sid, kind: 'click', name: s.name }).catch(fail), 'ghost'))))));
+      h('div.grid.scroll', {}, Object.entries(clickServices).map(([sid, s]) => btn(s.name, () => startJob(box, { service: sid, kind: 'click', name: s.name }).catch(fail), 'ghost'))))));
 }
 
 /* ---------- Umzüge ---------- */
@@ -309,12 +321,12 @@ const line = job => {
 async function jobsView() {
   const jobs = (await store.all('jobs')).sort((a, b) => b.createdAt - a.createdAt);
   if (!jobs.length) {
-    return h('div.intro', {}, h('h1', {}, 'Noch kein Umzug.'), h('p', {}, 'Öffne eine Kiste und tippe auf Umziehen.'), h('a.btn', { href: '#/' }, 'Zu den Kisten'));
+    return h('div.view', {}, rootHead('Umzüge'), h('div.empty', {}, h('p', {}, 'Noch kein Umzug. Öffne eine Kiste und tippe auf Umziehen.')));
   }
-  return h('div', {}, heading('Umzüge'), h('ul.boxes', {}, jobs.map(job => h('li', {}, h('a.box', { href: `#/job/${job.id}` },
+  return h('div.view', {}, rootHead('Umzüge'), h('ul.boxes.fill', {}, jobs.map(job => h('li', {}, h('a.box', { href: `#/job/${job.id}` },
     h('span.box-name', {}, `${job.boxName} nach ${serviceName(job.target.service)}`),
     h('span.box-meta', {}, line(job)),
-    jobSpine(job, 44))))));
+    jobSpine(job, 30))))));
 }
 
 const searchUrl = (service, q) => (service === 'spotify'
@@ -324,18 +336,15 @@ const queryOf = t => `${t.artists[0] || ''} ${t.title}`.trim();
 
 function reviewBlock(job, save) {
   const unsure = job.items.filter(i => i.state === 'unsure');
-  return h('div.sheet', {},
+  return h('div.sheet.fill', {},
     h('h2', {}, `${songs(unsure.length)} prüfen`),
-    h('p', {}, 'Hier passt der Treffer nicht sicher, oft ist es eine andere Version. Nimm einen Vorschlag oder lass den Song aus.'),
-    h('div.actions', {},
-      btn('Alle ersten Vorschläge nehmen', async () => { acceptAllUnsure(job); await save(); render(); }, 'ghost')),
-    paged(unsure, item => h('li.review', {},
+    h('p.muted', {}, 'Oft eine andere Version. Nimm einen Vorschlag oder lass den Song aus.'),
+    h('div.scroll', {}, paged(unsure, item => h('li.review', {},
       h('div.t', {}, h('strong', {}, item.track.title), h('span', {}, artistLine(item.track))),
       h('div.cands', {}, item.candidates.filter(c => c.score >= 0.3).map(c => h('div.cand', {},
         h('a', { href: c.url, target: '_blank', rel: 'noopener' }, `${c.title}, ${(c.artists || []).join(', ')}`),
         btn('Nehmen', async () => { pick(job, item.key, c); await save(); render(); }, 'ghost small')))),
-      btn('Auslassen', async () => { skip(job, item.key); await save(); render(); }, 'ghost small')), 25),
-    btn(`Weiter und ${songs(counts(job).sure)} eintragen`, async () => { confirmReview(job); await save(); pump().catch(fail); render(); }));
+      btn('Auslassen', async () => { skip(job, item.key); await save(); render(); }, 'ghost small')), 25)));
 }
 
 function clickJobView(job, save) {
@@ -346,7 +355,7 @@ function clickJobView(job, save) {
         item.state = e.target.checked ? 'written' : 'pending';
         job.status = job.items.every(i => i.state === 'written') ? 'done' : 'queued';
         await save();
-        document.getElementById('jobLine').textContent = line(job);
+        document.getElementById('jobLine').textContent = `Nach ${service.name}. ${line(job)}`;
       } }),
       h('span.t', {}, h('strong', {}, item.track.title), h('span', {}, artistLine(item.track)))),
     h('a', { href: service.url(queryOf(item.track)), target: '_blank', rel: 'noopener' }, 'Öffnen')));
@@ -359,13 +368,13 @@ async function jobView(id) {
   const c = counts(job);
   const name = serviceName(job.target.service);
   const parts = [
-    heading(`${job.boxName} nach ${name}`),
-    h('p.meta', { id: 'jobLine' }, line(job)),
-    jobSpine(job, 72),
+    deepHead(job.boxName, '#/jobs'),
+    h('p.meta', { id: 'jobLine' }, `Nach ${name}. ${line(job)}`),
+    jobSpine(job, spineSize()),
   ];
+  const del = confirmBtn('Löschen', 'Wirklich löschen?', async () => { await store.del('jobs', id); go('#/jobs'); });
   if (job.target.kind === 'click') {
-    return h('div', {}, parts, h('div.sheet', {}, clickJobView(job, save)),
-      h('div.actions.main', {}, confirmBtn('Löschen', 'Wirklich löschen?', async () => { await store.del('jobs', id); go('#/jobs'); })));
+    return h('div.view', {}, parts, h('div.sheet.fill', {}, h('div.scroll', {}, clickJobView(job, save))), h('div.actions.bar', {}, del));
   }
   const adapter = adapters[job.target.service];
   parts.push(h('ul.legend', {},
@@ -377,35 +386,44 @@ async function jobView(id) {
   if (job.message) {
     parts.push(h('p.notice', {}, job.message, job.resumeAt ? ` Weiter ab ${new Date(job.resumeAt).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}.` : ''));
   }
-  const actions = h('div.actions.main');
-  if (['queued', 'matching', 'writing'].includes(job.status)) actions.append(btn('Anhalten', () => { stop(id); toast('Hält nach dem aktuellen Song an.'); }, 'ghost'));
-  if (job.status === 'paused' && job.pauseReason === 'auth') actions.append(btn(`Bei ${name} anmelden`, () => login(adapter)));
-  else if (job.status === 'paused' || job.status === 'failed') actions.append(btn('Weitermachen', async () => { retry(job); await save(); pump().catch(fail); render(); }));
-  if (job.target.url) actions.append(h('a.btn.ghost', { href: job.target.url, target: '_blank', rel: 'noopener' }, `In ${name} öffnen`));
-  if (job.status === 'done') {
-    actions.append(btn('Neue Songs nachziehen', async () => {
-      const box = await store.get('boxes', job.boxId);
-      if (!box) { toast('Die Kiste zu diesem Umzug gibt es nicht mehr.'); return; }
-      try {
-        if (box.source && navigator.onLine) { box.tracks = dedupe((await refreshBox(box)).tracks); await store.put('boxes', box); }
-        const fresh = delta(job, box);
-        if (!fresh.length) { toast('Keine neuen Songs in der Kiste.'); return; }
-        await startJob({ ...box, tracks: fresh }, { ...job.target });
-      } catch (e) { fail(e); }
-    }, 'ghost'));
-  }
-  actions.append(btn('Bericht (CSV)', () => download(`Bericht ${safeFilename(job.boxName)}.csv`, reportCsv(job), 'text/csv'), 'ghost'));
-  actions.append(confirmBtn('Löschen', 'Wirklich löschen?', async () => { await store.del('jobs', id); go('#/jobs'); }));
-  parts.push(actions);
-  if (job.status === 'review') parts.push(reviewBlock(job, save));
+  const review = job.status === 'review';
+  parts.push(review ? reviewBlock(job, save) : h('div.grow'));
+  const bar = h('div.actions.bar');
+  if (['queued', 'matching', 'writing'].includes(job.status)) bar.append(btn('Anhalten', () => { stop(id); toast('Hält nach dem aktuellen Song an.'); }, 'ghost'));
+  if (review) bar.append(btn(`${songs(c.sure)} eintragen`, async () => { confirmReview(job); await save(); pump().catch(fail); render(); }));
+  if (job.status === 'paused' && job.pauseReason === 'auth') bar.append(btn(`Bei ${name} anmelden`, () => login(adapter)));
+  else if (job.status === 'paused' || job.status === 'failed') bar.append(btn('Weitermachen', async () => { retry(job); await save(); pump().catch(fail); render(); }));
+  if (job.target.url) bar.append(h(`a.btn${job.status === 'done' ? '' : '.ghost'}`, { href: job.target.url, target: '_blank', rel: 'noopener' }, `In ${name} öffnen`));
   const missing = job.items.filter(i => i.state === 'missing');
-  if (missing.length && job.status !== 'matching') {
-    parts.push(h('details.sheet', {}, h('summary', {}, `${songs(missing.length)} nicht gefunden`),
-      paged(missing, item => h('li.track', {},
-        h('div.t', {}, h('strong', {}, item.track.title), h('span', {}, artistLine(item.track))),
-        h('a', { href: searchUrl(job.target.service, queryOf(item.track)), target: '_blank', rel: 'noopener' }, 'Selbst suchen')))));
-  }
-  return h('div', {}, parts);
+  const more = () => dialog('Mehr', close => [
+    h('div.grid', {},
+      review ? btn('Alle ersten Vorschläge nehmen', async () => { acceptAllUnsure(job); await save(); close(); render(); }, 'ghost') : null,
+      job.status === 'done' ? btn('Neue Songs nachziehen', async () => {
+        close();
+        const box = await store.get('boxes', job.boxId);
+        if (!box) { toast('Die Kiste zu diesem Umzug gibt es nicht mehr.'); return; }
+        try {
+          if (box.source && navigator.onLine) {
+            const fresh = dedupe((await refreshBox(box)).tracks);
+            if (fresh.length) { box.tracks = fresh; await store.put('boxes', box); }
+          }
+          const added = delta(job, box);
+          if (!added.length) { toast('Keine neuen Songs in der Kiste.'); return; }
+          await startJob({ ...box, tracks: added }, { ...job.target });
+        } catch (e) { fail(e); }
+      }, 'ghost') : null,
+      missing.length ? btn(`${songs(missing.length)} nicht gefunden`, () => {
+        close();
+        dialog(`${songs(missing.length)} nicht gefunden`, () => [paged(missing, item => h('li.track', {},
+          h('div.t', {}, h('strong', {}, item.track.title), h('span', {}, artistLine(item.track))),
+          h('a', { href: searchUrl(job.target.service, queryOf(item.track)), target: '_blank', rel: 'noopener' }, 'Selbst suchen')))]);
+      }, 'ghost') : null,
+      btn('Bericht (CSV)', () => { download(`Bericht ${safeFilename(job.boxName)}.csv`, reportCsv(job), 'text/csv'); close(); }, 'ghost'),
+      del),
+  ]);
+  bar.append(btn('Mehr', more, 'ghost'));
+  parts.push(bar);
+  return h('div.view', {}, parts);
 }
 
 /* ---------- Geteilte Kiste ---------- */
@@ -413,37 +431,35 @@ let incoming = null;
 async function sharedView() {
   if (!incoming) return missingView();
   const { name, tracks } = incoming;
-  return h('div', {},
-    heading(name),
+  return h('div.view', {},
+    deepHead(name, '#/'),
     h('p.meta', {}, `${songs(tracks.length)} wurden mit dir geteilt.`),
-    spine(tracks, { height: 72, colorOf: sleeveColor, label: songs(tracks.length) }),
-    h('div.actions.main', {}, btn('In meine Kisten legen', async () => {
+    spine(tracks, { height: spineSize(), colorOf: sleeveColor, label: songs(tracks.length) }),
+    h('div.sheet.fill', {}, h('div.scroll', {}, paged(tracks, t => trackRow(t)))),
+    h('div.actions.bar', {}, btn('In meine Kisten legen', async () => {
       const box = await saveBox(makeBox({ name, tracks }));
       incoming = null;
       go(`#/box/${box.id}`);
-    })),
-    h('div.sheet', {}, paged(tracks, t => trackRow(t))));
+    })));
 }
 
 /* ---------- Dienste ---------- */
-function serviceCard(adapter, { label, steps }) {
-  const id = h('input', { value: adapter.clientId(), 'aria-label': label, placeholder: label, autocomplete: 'off', spellcheck: 'false', onChange: e => { adapter.setClientId(e.target.value); render(); } });
-  return h('section.sheet', {},
-    h('h2', {}, adapter.name),
-    adapter.isConnected()
-      ? h('div.actions', {}, h('span.ok', {}, 'Angemeldet'), btn('Abmelden', () => { adapter.logout(); render(); }, 'ghost small'))
-      : h('div.stack', {},
-        h('details', {}, h('summary', {}, 'So bekommst du die ID'), h('ol', {}, steps.map(s => h('li', {}, s)))),
-        id,
-        btn(`Bei ${adapter.name} anmelden`, () => {
-          adapter.setClientId(id.value);
-          login(adapter);
-        })));
+function servicePanel(adapter, { label, steps }) {
+  if (adapter.isConnected()) {
+    return h('div.stack', {}, h('p.ok', {}, `Bei ${adapter.name} angemeldet.`), btn('Abmelden', () => { adapter.logout(); render(); }, 'ghost'));
+  }
+  const id = h('input', { value: adapter.clientId(), 'aria-label': label, placeholder: label, autocomplete: 'off', spellcheck: 'false' });
+  return h('div.stack.grow', {},
+    h('p', {}, 'Einmalig eine eigene Zugangs-ID eintragen. Sie bleibt in diesem Browser.'),
+    h('ol.scroll', {}, steps.map(s => h('li', {}, s))),
+    id,
+    btn(`Bei ${adapter.name} anmelden`, () => {
+      adapter.setClientId(id.value);
+      login(adapter);
+    }));
 }
 
-async function settingsView() {
-  const uri = redirectUri();
-  const q = youtube.quota();
+function backupPanel() {
   const backupIn = h('input', {
     type: 'file', accept: '.json', 'aria-label': 'Sicherung einspielen', onChange: async () => {
       try {
@@ -455,65 +471,114 @@ async function settingsView() {
       } catch (e) { fail(e); }
     },
   });
-  return h('div', {},
-    heading('Dienste'),
-    h('p.lead', {}, 'Jeder Dienst braucht einmalig deine eigene Zugangs-ID. Sie bleibt in diesem Browser.'),
-    serviceCard(spotify, { label: 'Spotify Client ID', steps: [
-      h('span', {}, 'Im ', h('a', { href: 'https://developer.spotify.com/dashboard', target: '_blank', rel: 'noopener' }, 'Spotify Developer Dashboard'), ' eine App mit Web API anlegen. Dafür braucht es Spotify Premium.'),
-      h('span', {}, 'Als Redirect URI eintragen: ', h('code', {}, uri)),
-      'Client ID kopieren und hier einfügen.',
-    ] }),
-    serviceCard(youtube, { label: 'Google OAuth Client ID', steps: [
-      h('span', {}, 'In der ', h('a', { href: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com', target: '_blank', rel: 'noopener' }, 'Google Cloud Console'), ' ein Projekt anlegen und YouTube Data API v3 aktivieren.'),
-      'OAuth-Client vom Typ Webanwendung anlegen und dich selbst als Testnutzer eintragen.',
-      h('span', {}, 'Als Weiterleitungs-URI eintragen: ', h('code', {}, uri)),
-      'Client ID kopieren und hier einfügen.',
-    ] }),
-    h('p.muted', {}, `YouTube heute: ${q.searches} von ${SEARCH_LIMIT} Suchen, ${q.units} von ${UNIT_LIMIT} Einheiten.`),
-    h('section.sheet', {},
-      h('h2', {}, 'Sicherung'),
-      h('p', {}, 'Die Kisten liegen nur in diesem Browser. Mit der Sicherung nimmst du sie auf ein anderes Gerät mit.'),
-      h('div.actions', {}, btn('Alle Kisten sichern', async () => {
-        const boxes = await store.all('boxes');
-        download('umzugskiste-sicherung.json', JSON.stringify({ app: 'umzugskiste', v: 1, boxes }), 'application/json');
-      }, 'ghost')),
-      h('label.field', {}, 'Sicherung einspielen', backupIn),
-      confirmBtn('Alle Daten löschen', 'Wirklich alles löschen?', async () => {
-        for (const s of ['boxes', 'jobs', 'cache']) await store.clear(s);
-        adapters.spotify.logout(); adapters.youtube.logout();
-        toast('Alle Daten sind gelöscht.');
-        go('#/');
-      })),
-    h('p.muted', {}, `Umzugskiste ${VERSION}. Keine Verbindung mit Spotify, Google, Apple, Deezer oder TIDAL und nicht von ihnen unterstützt. Anfragen gehen direkt von deinem Browser an die Dienste.`));
+  return h('div.stack', {},
+    h('p', {}, 'Die Kisten liegen nur in diesem Browser. Mit der Sicherung nimmst du sie auf ein anderes Gerät mit.'),
+    btn('Alle Kisten sichern', async () => {
+      const boxes = await store.all('boxes');
+      download('umzugskiste-sicherung.json', JSON.stringify({ app: 'umzugskiste', v: 1, boxes }), 'application/json');
+    }, 'ghost'),
+    h('label.field', {}, 'Sicherung einspielen', backupIn),
+    confirmBtn('Alle Daten löschen', 'Wirklich alles löschen?', async () => {
+      for (const st of ['boxes', 'jobs', 'cache']) await store.clear(st);
+      adapters.spotify.logout(); adapters.youtube.logout();
+      toast('Alle Daten sind gelöscht.');
+      go('#/');
+    }));
 }
 
-const missingView = () => h('div.intro', {}, h('h1', {}, 'Das gibt es hier nicht mehr.'), h('a.btn', { href: '#/' }, 'Zu den Kisten'));
+async function settingsView(tab = 'spotify') {
+  const uri = redirectUri();
+  const q = youtube.quota();
+  const panels = {
+    spotify: () => servicePanel(spotify, { label: 'Spotify Client ID', steps: [
+      h('span', {}, 'Im ', h('a', { href: 'https://developer.spotify.com/dashboard', target: '_blank', rel: 'noopener' }, 'Spotify Developer Dashboard'), ' eine App mit Web API anlegen. Das braucht Spotify Premium.'),
+      h('span', {}, 'Als Redirect URI eintragen: ', h('code', {}, uri)),
+      'Client ID kopieren und unten einfügen.',
+    ] }),
+    youtube: () => h('div.stack.grow', {},
+      servicePanel(youtube, { label: 'Google OAuth Client ID', steps: [
+        h('span', {}, 'In der ', h('a', { href: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com', target: '_blank', rel: 'noopener' }, 'Google Cloud Console'), ' ein Projekt anlegen und YouTube Data API v3 aktivieren.'),
+        'OAuth-Client vom Typ Webanwendung anlegen und dich als Testnutzer eintragen.',
+        h('span', {}, 'Als Weiterleitungs-URI eintragen: ', h('code', {}, uri)),
+        'Client ID kopieren und unten einfügen.',
+      ] }),
+      h('p.muted', {}, `Heute: ${q.searches} von ${SEARCH_LIMIT} Suchen, ${q.units} von ${UNIT_LIMIT} Einheiten.`)),
+    backup: backupPanel,
+  };
+  const tabs = [['spotify', 'Spotify'], ['youtube', 'YouTube'], ['backup', 'Sicherung']];
+  const active = panels[tab] ? tab : 'spotify';
+  return h('div.view', {},
+    rootHead('Dienste'),
+    h('div.tabs', { role: 'tablist', 'aria-label': 'Einstellungen' }, tabs.map(([id, label]) => h('a', {
+      role: 'tab', href: `#/settings/${id}`, 'aria-selected': String(id === active),
+    }, label))),
+    h('div.sheet.fill', {}, panels[active]()));
+}
+
+const missingView = () => h('div.view', {}, deepHead('Nicht gefunden', '#/'), h('div.empty', {}, h('p', {}, 'Das gibt es hier nicht mehr.'), h('a.btn', { href: '#/' }, 'Zu den Kisten')));
+
+/* ---------- Kopf: Neues, Info ---------- */
+const SEEN = 'uk.seenVersion';
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* privater Modus */ } };
+const newer = (a, b) => a.localeCompare(b, 'en', { numeric: true }) > 0;
+
+function showChangelog(entries = CHANGELOG, title = 'Neues') {
+  dialog(title, () => [h('div', {}, entries.map(e => h('section.log', {},
+    h('h3', {}, e.version), h('ul', {}, e.notes.map(n => h('li', {}, n))))))], () => lsSet(SEEN, VERSION));
+}
+
+function changelogOnUpdate() {
+  const seen = lsGet(SEEN);
+  if (!seen) { lsSet(SEEN, VERSION); return; }
+  const fresh = CHANGELOG.filter(e => newer(e.version, seen));
+  if (fresh.length) showChangelog(fresh, `Neu in ${VERSION}`);
+}
+
+let installEvent = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; });
+
+function showInfo() {
+  dialog('Umzugskiste', close => [h('div.stack', {},
+    h('p', {}, 'Läuft nur in deinem Browser. Kisten liegen auf diesem Gerät, Anfragen gehen direkt an den jeweiligen Dienst.'),
+    h('p.muted', {}, 'Für Deezer-Links läuft ein Deezer-Skript abgeschottet, ohne Zugriff auf deine Daten.'),
+    h('div.grid', {},
+      btn('Neues', () => { close(); showChangelog(); }, 'ghost'),
+      h('a.btn.ghost', { id: 'feedback', target: '_blank', rel: 'noopener', href: `https://github.com/Oliver19xx/SyncMyMusic/issues/new?body=${encodeURIComponent(`Version ${VERSION}\n\n`)}` }, 'Feedback'),
+      installEvent ? btn('Installieren', () => installEvent.prompt(), 'ghost') : null),
+    installEvent ? null : h('p.muted', {}, 'iPhone: In Safari auf Teilen, dann „Zum Home-Bildschirm“.'),
+    h('p.muted', {}, `Version ${VERSION}. Nicht verbunden mit Spotify, Google, Apple, Deezer oder TIDAL.`))]);
+}
 
 /* ---------- Router ---------- */
 function route() {
   const hash = location.hash || '#/';
   const p = hash.replace(/^#\/?/, '').split('/');
-  if (p[0] === 'new') return [newView, [p[1]], 'home'];
-  if (p[0] === 'box' && p[2] === 'move') return [moveView, [p[1], p[3]], 'home'];
-  if (p[0] === 'box') return [boxView, [p[1]], 'home'];
+  if (p[0] === 'new') return [newView, [p[1]], null];
+  if (p[0] === 'box' && p[2] === 'move') return [moveView, [p[1], p[3]], null];
+  if (p[0] === 'box') return [boxView, [p[1]], null];
   if (p[0] === 'jobs') return [jobsView, [], 'jobs'];
-  if (p[0] === 'job') return [jobView, [p[1]], 'jobs'];
-  if (p[0] === 'settings') return [settingsView, [], 'settings'];
-  if (p[0] === 'shared') return [sharedView, [], 'home'];
+  if (p[0] === 'job') return [jobView, [p[1]], null];
+  if (p[0] === 'settings') return [settingsView, [p[1]], 'settings'];
+  if (p[0] === 'shared') return [sharedView, [], null];
   return [homeView, [], 'home'];
 }
 
+let lastHash = null;
 async function render() {
   const mine = ++renderId;
   const [fn, args, nav] = route();
+  document.body.classList.toggle('deep', !nav);
+  const entering = lastHash !== location.hash;
+  lastHash = location.hash;
   document.querySelectorAll('[data-nav]').forEach(a => {
     if (a.dataset.nav === nav) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   try {
     const node = await fn(...args);
-    if (mine === renderId) view.replaceChildren(node);
+    if (mine === renderId) { node.classList.toggle('enter', entering); view.replaceChildren(node); }
   } catch (e) {
-    if (mine === renderId) view.replaceChildren(h('div.intro', {}, h('h1', {}, 'Das ging schief.'), h('p', {}, e.message)));
+    if (mine === renderId) view.replaceChildren(h('div.view', {}, h('div.empty', {}, h('h1', {}, 'Das ging schief.'), h('p', {}, e.message))));
   }
 }
 
@@ -537,6 +602,9 @@ function setupUpdates() {
       });
     });
   }).catch(() => {});
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') navigator.serviceWorker.getRegistration().then(r => r?.update()).catch(() => {});
+  });
   let reloaded = false;
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -602,5 +670,6 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => rend
   await handleCallbacks();
   await handleShare();
   await render();
+  changelogOnUpdate();
   pump().catch(() => {});
 })();

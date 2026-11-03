@@ -86,8 +86,8 @@ try {
   await shot(page, 'kiste');
 
   const [dl] = await Promise.all([page.waitForEvent('download'), (async () => {
-    await page.click('summary:has-text("Exportieren")');
-    await page.click('.menu button:has-text("CSV")');
+    await page.click('.bar button:has-text("Mehr")');
+    await page.click('dialog button:has-text("CSV")');
   })()]);
   assert.match(dl.suggestedFilename(), /Offline gepackt\.csv/);
   ok('CSV-Export offline');
@@ -99,7 +99,7 @@ try {
   });
   await page.click('text=Umziehen');
   await page.waitForSelector('#targetName');
-  await page.click('button:has-text("Nach Spotify umziehen")');
+  await page.click('button:has-text("nach Spotify umziehen")');
   await page.waitForSelector('#jobLine');
   assert.match(await page.textContent('#jobLine'), /Wartet auf den Start/);
   ok('Umzug offline eingereiht');
@@ -117,8 +117,11 @@ try {
   assert.deepEqual(state.created, ['Offline gepackt']);
   assert.deepEqual(state.added.sort(), ['spotify:track:glue', 'spotify:track:omt', 'spotify:track:st'].sort());
   ok('Songs eingetragen, nur eine Playlist angelegt');
-  await page.click('summary:has-text("nicht gefunden")');
+  await page.click('.bar button:has-text("Mehr")');
+  await page.click('dialog button:has-text("nicht gefunden")');
+  await page.waitForSelector('dialog:has-text("Selbst suchen")');
   await shot(page, 'fertig');
+  await page.click('dialog button:has-text("Schließen")');
 
   /* Spotify als Quelle */
   await page.goto(`${BASE}#/new/spotify`);
@@ -140,6 +143,15 @@ try {
   const friendCtx = await browser.newContext(devices['iPhone 13']);
   const friend = await friendCtx.newPage();
   watch(friend);
+  const fresh = await friendCtx.newPage();
+  await fresh.goto(BASE);
+  await fresh.waitForSelector('.intro img');
+  await fresh.waitForTimeout(1800);
+  await shot(fresh, 'mobil-start');
+  await fresh.click('.head .icon');
+  await fresh.waitForTimeout(350);
+  await shot(fresh, 'mobil-info');
+  await fresh.close();
   await friend.goto(link);
   await friend.waitForSelector('text=wurden mit dir geteilt');
   await friend.click('text=In meine Kisten legen');
@@ -149,7 +161,7 @@ try {
   await friend.waitForTimeout(200);
   await shot(friend, 'mobil-kiste');
   await friend.goto(`${BASE}#/settings`);
-  await friend.waitForSelector('h2');
+  await friend.waitForSelector('text=Client ID kopieren');
   await shot(friend, 'mobil-dienste');
   const over = await friend.evaluate(() => document.documentElement.scrollWidth > innerWidth);
   assert.equal(over, false, 'kein seitliches Scrollen');
@@ -227,7 +239,7 @@ try {
   await page.click('.box-name:has-text("Deezer-Test")');
   await page.click('text=Umziehen');
   await page.click('[role=tab]:has-text("YouTube")');
-  await page.click('button:has-text("Nach YouTube umziehen")');
+  await page.click('button:has-text("nach YouTube umziehen")');
   await page.waitForSelector('text=In YouTube öffnen');
   assert.equal(yt.inserts, 1);
   ok('YouTube: Anmeldung, Suche, Playlist, Eintrag');
@@ -237,11 +249,48 @@ try {
   await page.click('.box-name:has-text("Offline gepackt")');
   await page.click('text=Umziehen');
   await page.click('[role=tab]:has-text("YouTube")');
-  await page.click('button:has-text("Nach YouTube umziehen")');
+  await page.click('button:has-text("nach YouTube umziehen")');
   await page.waitForSelector('text=Tageslimit');
   assert.match(await page.textContent('p.notice'), /Weiter ab/);
   ok('YouTube: Tageslimit pausiert mit Uhrzeit');
 
+  /* Layout: Die Seite scrollt nie, auch nicht klein */
+  await page.setViewportSize({ width: 360, height: 560 });
+  for (const route of ['#/', '#/new', '#/new/spotify', '#/jobs', '#/settings/spotify', '#/settings/youtube', '#/settings/backup']) {
+    await page.goto(BASE + route);
+    await page.waitForTimeout(320);
+    const bad = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.body.scrollHeight > innerHeight || document.documentElement.scrollWidth > innerWidth);
+    assert.equal(bad, false, `Seite scrollt: ${route}`);
+    if (await page.locator('.bar').count()) assert.ok((await page.locator('.bar').boundingBox()).y + 20 < 560, `Leiste sichtbar: ${route}`);
+  }
+  await page.goto(`${BASE}#/`);
+  await page.click('.box-name >> nth=0');
+  await page.waitForSelector('.bar');
+  await shot(page, 'klein-kiste');
+  assert.ok(await page.locator('.bar a').isVisible());
+  await page.goto(`${BASE}#/jobs`);
+  await page.click('.box-name >> nth=0');
+  await page.waitForSelector('.bar');
+  await page.waitForTimeout(150);
+  assert.ok((await page.locator('.bar').boundingBox()).y + 20 < 560);
+  await shot(page, 'klein-umzug');
+  await page.setViewportSize({ width: 400, height: 800 });
+  ok('Layout passt bei 360×560 ohne Seiten-Scrollen');
+
+  /* Neues-Dialog nach Update, nicht beim ersten Besuch */
+  assert.ok(await page.evaluate(() => localStorage.getItem('uk.seenVersion')));
+  await page.evaluate(() => localStorage.setItem('uk.seenVersion', '0.0.1'));
+  await page.goto(`${BASE}#/jobs`);
+  await page.reload();
+  await page.waitForSelector('dialog:has-text("Neu in")');
+  await page.click('dialog button:has-text("Schließen")');
+  await page.reload();
+  await page.waitForSelector('.view');
+  assert.equal(await page.locator('dialog').count(), 0);
+  ok('Änderungen erscheinen nach Update einmal');
+  await page.goto(`${BASE}#/jobs`);
+  await page.click('.head .icon');
+  assert.match(await page.getAttribute('#feedback', 'href'), /SyncMyMusic\/issues\/new\?body=Version/);
   assert.deepEqual(consoleErrors, []);
   ok('Keine Konsolenfehler');
   await ctx.close();

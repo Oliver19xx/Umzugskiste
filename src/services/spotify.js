@@ -10,8 +10,8 @@ const MAX_WAIT = 60;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const load = k => { try { return JSON.parse(localStorage.getItem(`uk.spotify.${k}`)); } catch { return null; } };
-const save = (k, v) => localStorage.setItem(`uk.spotify.${k}`, JSON.stringify(v));
-const drop = k => localStorage.removeItem(`uk.spotify.${k}`);
+const save = (k, v) => { try { localStorage.setItem(`uk.spotify.${k}`, JSON.stringify(v)); } catch { /* Speicher gesperrt */ } };
+const drop = k => { try { localStorage.removeItem(`uk.spotify.${k}`); } catch { /* Speicher gesperrt */ } };
 
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const random = () => b64url(crypto.getRandomValues(new Uint8Array(48)));

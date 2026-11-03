@@ -45,6 +45,7 @@ export function download(name, text, type = 'text/plain') {
 export function paged(items, row, size = 100) {
   const list = h('ul.rows');
   const more = btn('', () => show(), 'ghost');
+  more.classList.add('more');
   let at = 0;
   const show = () => {
     list.append(...items.slice(at, at + size).map(row));
@@ -54,6 +55,38 @@ export function paged(items, row, size = 100) {
   };
   show();
   return h('div', {}, list, more);
+}
+
+// Dialog: Kopf und Schließen-Knopf bleiben stehen, nur der Inhalt scrollt.
+export function dialog(title, build, onClose) {
+  const d = h('dialog');
+  const close = () => d.close();
+  d.append(h('h2', {}, title), h('div.scroll.dlg-body', {}, build(close)), h('div.actions', {}, btn('Schließen', close, 'ghost')));
+  d.addEventListener('close', () => { d.remove(); onClose?.(); });
+  document.body.append(d);
+  d.showModal();
+  return close;
+}
+
+// Filterbare Auswahl statt Select, auch bei hunderten Playlists bedienbar.
+export function picker(items, selected, onPick) {
+  let all = items, current = selected;
+  const group = `pick-${Math.random().toString(36).slice(2)}`;
+  const q = h('input', { type: 'search', placeholder: 'Playlist suchen', 'aria-label': 'Playlist suchen' });
+  const list = h('ul.rows.scroll');
+  const show = () => {
+    const term = q.value.trim().toLowerCase();
+    list.replaceChildren(...all.filter(i => !term || i.id === current || i.name.toLowerCase().includes(term)).map(i => h('li', {}, h('label.check', {},
+      h('input', { type: 'radio', name: group, checked: i.id === current, onChange: () => { current = i.id; onPick(i.id); } }),
+      h('span', {}, i.name)))));
+  };
+  q.addEventListener('input', show);
+  show();
+  return {
+    el: h('div.picker', {}, q, list),
+    setItems(next) { all = next; show(); },
+    value: () => all.find(i => i.id === current),
+  };
 }
 
 /* ---------- Rücken-Streifen: jeder Song ein Plattenrücken, Höhe nach Länge ---------- */
@@ -73,7 +106,7 @@ export function spine(items, { height = 44, colorOf, label }) {
     g.scale(dpr, dpr);
     const n = items.length;
     if (!n) return;
-    const bar = Math.min(12, Math.max(1, Math.floor(width / n)));
+    const bar = Math.min(10, Math.max(1, Math.floor(width / n)));
     const gap = bar >= 4 ? 1 : 0;
     const count = Math.min(n, Math.floor(width / bar));
     for (let x = 0; x < count; x++) {
@@ -81,7 +114,10 @@ export function spine(items, { height = 44, colorOf, label }) {
       const mins = Math.min(1, (it.durationMs || 210000) / 420000);
       const tall = Math.round(height * (0.62 + 0.38 * mins));
       g.fillStyle = colorOf(it);
-      g.fillRect(x * bar, height - tall, bar - gap, tall);
+      g.beginPath();
+      if (bar >= 4 && g.roundRect) g.roundRect(x * bar, height - tall, bar - gap, tall, [2, 2, 0, 0]);
+      else g.rect(x * bar, height - tall, bar - gap, tall);
+      g.fill();
     }
   };
   new ResizeObserver(draw).observe(c);

@@ -1,5 +1,7 @@
 # Umzugskiste
 
+![Umzugskiste packt eine Playlist ein und trägt sie im neuen Dienst ein](assets/explainer.gif)
+
 Zieht Playlists von einem Musikdienst zum anderen um. Offline-first PWA ohne Server, ohne Konto, ohne Build-Schritt.
 
 ## Was geht
@@ -38,9 +40,13 @@ npm run e2e      # Browser-Test mit nachgebauten Dienst-APIs, Screenshots in e2e
 
 Aufbau: `src/transfer.js` steuert den Umzug, `src/match.js` den Abgleich, `src/services/` die Dienste. Ein neuer Dienst ist ein Adapter mit `search`, `createPlaylist`, `existingIds` und `addTracks` und ein Eintrag in `src/services/index.js`.
 
+## Feedback
+
+Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/SyncMyMusic/issues/new).
+
 ## Release
 
-Version in `src/model.js`, `package.json` und `CACHE` in `sw.js` erhöhen. Neue Dateien in `SHELL` in `sw.js` eintragen, `npm test` prüft beides.
+`VERSION` und `CHANGELOG` in `src/model.js`, `package.json` und `CACHE` in `sw.js` anpassen. Neue Dateien in `SHELL` in `sw.js` eintragen, `npm test` prüft beides. Nutzer sehen die Änderungen nach dem Update automatisch.
 
 ## Rechtliches
 
