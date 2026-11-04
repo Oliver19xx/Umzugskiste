@@ -1,8 +1,11 @@
 // Datenmodell: Kiste (Sammlung von Songs), Song und ein paar kleine Helfer.
 import { norm } from './match.js';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
 export const CHANGELOG = [
+  { version: '0.2.0', notes: [
+    'Neue Oberfläche im Stil von iOS, mit hellem und dunklem Modus',
+  ] },
   { version: '0.1.0', notes: [
     'Playlists aus Spotify, SoundCloud, Dateien oder Text in Kisten packen',
     'Kisten zu Spotify oder SoundCloud umziehen',

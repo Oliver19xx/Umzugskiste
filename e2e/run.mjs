@@ -101,7 +101,7 @@ try {
   await shot(page, 'kiste');
 
   const [dl] = await Promise.all([page.waitForEvent('download'), (async () => {
-    await page.click('.bar button:has-text("Mehr")');
+    await page.click('[aria-label=Mehr]');
     await page.click('dialog button:has-text("CSV")');
   })()]);
   assert.match(dl.suggestedFilename(), /Offline gepackt\.csv/);
@@ -132,11 +132,11 @@ try {
   assert.deepEqual(state.created, ['Offline gepackt']);
   assert.deepEqual(state.added.sort(), ['spotify:track:glue', 'spotify:track:omt', 'spotify:track:st'].sort());
   ok('Songs eingetragen, nur eine Playlist angelegt');
-  await page.click('.bar button:has-text("Mehr")');
+  await page.click('[aria-label=Mehr]');
   await page.click('dialog button:has-text("nicht gefunden")');
   await page.waitForSelector('dialog:has-text("Selbst suchen")');
   await shot(page, 'fertig');
-  await page.click('dialog button:has-text("Schließen")');
+  await page.click('dialog .done');
 
   /* Spotify als Quelle */
   await page.goto(`${BASE}#/new/spotify`);
@@ -301,7 +301,7 @@ try {
   await page.setViewportSize({ width: 360, height: 560 });
   for (const route of ['#/', '#/new', '#/new/spotify', '#/jobs', '#/settings/spotify', '#/settings/soundcloud', '#/settings/backup']) {
     await page.goto(BASE + route);
-    await page.waitForTimeout(320);
+    await page.waitForTimeout(420);
     const bad = await page.evaluate(() => document.documentElement.scrollHeight > innerHeight || document.body.scrollHeight > innerHeight || document.documentElement.scrollWidth > innerWidth);
     assert.equal(bad, false, `Seite scrollt: ${route}`);
     if (await page.locator('.bar').count()) assert.ok((await page.locator('.bar').boundingBox()).y + 20 < 560, `Leiste sichtbar: ${route}`);
@@ -317,7 +317,12 @@ try {
   await page.waitForTimeout(150);
   assert.ok((await page.locator('.bar').boundingBox()).y + 20 < 560);
   await shot(page, 'klein-umzug');
-  await page.setViewportSize({ width: 400, height: 800 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [route, name] of [['#/', 'ios-kisten'], ['#/jobs', 'ios-umzuege']]) { await page.goto(BASE + route); await page.waitForTimeout(450); await shot(page, name); }
+  await page.click('.box-name >> nth=0'); await page.waitForTimeout(450); await shot(page, 'ios-umzug');
+  await page.goto(`${BASE}#/`); await page.click('.box-name >> nth=0'); await page.waitForTimeout(450); await shot(page, 'ios-kiste');
+  await page.click('[aria-label=Mehr]'); await page.waitForTimeout(450); await shot(page, 'ios-blatt'); await page.click('dialog .done');
+  await page.click('text=Umziehen'); await page.waitForTimeout(450); await page.click('[role=tab]:has-text("SoundCloud")'); await page.waitForTimeout(450); await shot(page, 'ios-ziel');
   ok('Layout passt bei 360×560 ohne Seiten-Scrollen');
 
   /* Neues-Dialog nach Update, nicht beim ersten Besuch */
@@ -326,7 +331,7 @@ try {
   await page.goto(`${BASE}#/jobs`);
   await page.reload();
   await page.waitForSelector('dialog:has-text("Neu in")');
-  await page.click('dialog button:has-text("Schließen")');
+  await page.click('dialog .done');
   await page.reload();
   await page.waitForSelector('.view');
   assert.equal(await page.locator('dialog').count(), 0);

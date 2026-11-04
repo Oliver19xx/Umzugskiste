@@ -24,6 +24,7 @@ export function confirmBtn(label, sure, onConfirm) {
     b.textContent = sure;
     setTimeout(() => { delete b.dataset.armed; b.textContent = label; }, 4000);
   }, 'ghost');
+  b.classList.add('danger');
   return b;
 }
 
@@ -57,11 +58,15 @@ export function paged(items, row, size = 100) {
   return h('div', {}, list, more);
 }
 
-// Dialog: Kopf und Schließen-Knopf bleiben stehen, nur der Inhalt scrollt.
+// Blatt von unten mit Griff, Titel und „Fertig“. Nur der Inhalt scrollt.
 export function dialog(title, build, onClose) {
   const d = h('dialog');
   const close = () => d.close();
-  d.append(h('h2', {}, title), h('div.scroll.dlg-body', {}, build(close)), h('div.actions', {}, btn('Schließen', close, 'ghost')));
+  d.append(
+    h('div.grabber'),
+    h('div.sheet-head', {}, h('h2', {}, title), h('button.done', { type: 'button', onClick: close }, 'Fertig')),
+    h('div.scroll.dlg-body', {}, build(close)));
+  d.addEventListener('click', e => { if (e.target === d) close(); });
   d.addEventListener('close', () => { d.remove(); onClose?.(); });
   document.body.append(d);
   d.showModal();
@@ -72,7 +77,7 @@ export function dialog(title, build, onClose) {
 export function picker(items, selected, onPick) {
   let all = items, current = selected;
   const group = `pick-${Math.random().toString(36).slice(2)}`;
-  const q = h('input', { type: 'search', placeholder: 'Playlist suchen', 'aria-label': 'Playlist suchen' });
+  const q = h('input.search', { type: 'search', placeholder: 'Suchen', 'aria-label': 'Playlist suchen' });
   const list = h('ul.rows.scroll');
   const show = () => {
     const term = q.value.trim().toLowerCase();
@@ -93,8 +98,8 @@ export function picker(items, selected, onPick) {
 const hash = s => { let x = 7; for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) >>> 0; return x; };
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-export function spine(items, { height = 44, colorOf, label }) {
-  const c = h('canvas.spine', { role: 'img', 'aria-label': label, height });
+export function spine(items, { height = 44, colorOf, label, thumb = false }) {
+  const c = h(`canvas.spine${thumb ? '.thumb' : ''}`, { role: 'img', 'aria-label': label, height });
   c.style.height = `${height}px`; // per CSSOM, die CSP sperrt style-Attribute
   const draw = () => {
     const width = c.clientWidth;
@@ -106,13 +111,13 @@ export function spine(items, { height = 44, colorOf, label }) {
     g.scale(dpr, dpr);
     const n = items.length;
     if (!n) return;
-    const bar = Math.min(10, Math.max(1, Math.floor(width / n)));
+    const bar = thumb ? width / Math.min(n, 7) : Math.min(10, Math.max(1, Math.floor(width / n)));
     const gap = bar >= 4 ? 1 : 0;
     const count = Math.min(n, Math.floor(width / bar));
     for (let x = 0; x < count; x++) {
       const it = items[Math.floor((x * n) / count)];
       const mins = Math.min(1, (it.durationMs || 210000) / 420000);
-      const tall = Math.round(height * (0.62 + 0.38 * mins));
+      const tall = Math.round(height * (thumb ? 0.5 + 0.5 * mins : 0.62 + 0.38 * mins));
       g.fillStyle = colorOf(it);
       g.beginPath();
       if (bar >= 4 && g.roundRect) g.roundRect(x * bar, height - tall, bar - gap, tall, [2, 2, 0, 0]);

@@ -25,10 +25,14 @@ async function saveBox(box) {
   return box;
 }
 
-// Hauptseiten: großer Titel mit Info-Knopf. Unterseiten: Zurück-Pfeil, keine Tab-Leiste.
-const rootHead = title => h('div.head', {}, h('h1', {}, title), h('button.icon', { type: 'button', 'aria-label': 'Über die App', onClick: showInfo }, 'i'));
-const backLink = href => h('a.back', { href, 'aria-label': 'Zurück' });
-const deepHead = (title, href) => h('div.head.sub', {}, backLink(href), h('h1', {}, title));
+// Hauptseiten: großer Titel. Unterseiten: Navigationsleiste mit Zurück und Mehr, keine Tab-Leiste.
+const infoIcon = () => h('button.icon', { type: 'button', 'aria-label': 'Über die App', onClick: showInfo });
+const rootHead = title => h('div.head', {}, h('h1', {}, title), infoIcon());
+const nav = (backHref, backLabel, title, right) => h('div.nav', {},
+  h('a.back', { href: backHref }, backLabel),
+  h('span.nav-title', {}, title || ''),
+  h('div.nav-right', {}, right || null));
+const moreBtn = onClick => h('button.more-icon', { type: 'button', 'aria-label': 'Mehr', onClick });
 const soon = () => h('div.soon', {}, h('p.muted', {}, 'Vielleicht später'), h('ul', {}, planned.map(name => h('li', { 'aria-disabled': 'true' }, name))));
 const spineSize = () => (innerHeight < 640 ? 36 : 64);
 const sourceLabel = box => {
@@ -48,7 +52,7 @@ async function homeView() {
   const add = h('a.btn.wide', { href: '#/new' }, 'Neue Kiste');
   if (!boxes.length) {
     return h('div.view.intro', {},
-      h('div.head', {}, h('h1.wordmark', {}, 'Umzugskiste'), h('button.icon', { type: 'button', 'aria-label': 'Über die App', onClick: showInfo }, 'i')),
+      rootHead('Umzugskiste'),
       explainer(),
       h('p', {}, 'Nimm deine Playlists mit zum nächsten Musikdienst. Ohne Konto, alles bleibt auf dem Gerät.'),
       add);
@@ -57,9 +61,10 @@ async function homeView() {
     rootHead('Kisten'),
     h('ul.boxes.fill', {}, boxes.map(box => h('li', {},
       h('a.box', { href: `#/box/${box.id}` },
-        h('span.box-name', {}, box.name),
-        h('span.box-meta', {}, `${songs(box.tracks.length)}, ${sourceLabel(box)}`),
-        spine(box.tracks, { height: 30, colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }))))),
+        spine(box.tracks, { height: 44, thumb: true, colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }),
+        h('span.box-text', {},
+          h('span.box-name', {}, box.name),
+          h('span.box-meta', {}, `${songs(box.tracks.length)}, ${sourceLabel(box)}`)))))),
     h('div.actions.bar', {}, add));
 }
 
@@ -175,7 +180,7 @@ function serviceTab(adapter) {
 async function newView(tab = 'text') {
   const panel = { text: textTab, file: fileTab, link: linkTab, spotify: () => serviceTab(spotify), soundcloud: () => serviceTab(soundcloud) }[tab] || textTab;
   return h('div.view', {},
-    deepHead('Neue Kiste', '#/'),
+    nav('#/', 'Kisten', 'Neue Kiste'),
     h('div.tabs', { role: 'tablist', 'aria-label': 'Woher kommen die Songs?' }, TABS.map(([id, label]) => h('a', {
       role: 'tab', href: `#/new/${id}`, 'aria-selected': String(id === tab),
     }, label))),
@@ -214,7 +219,7 @@ async function boxView(id) {
     value: box.name, 'aria-label': 'Name der Kiste',
     onChange: async e => { box.name = e.target.value.trim() || box.name; await save(); },
   });
-  const filter = h('input', { type: 'search', placeholder: 'In der Kiste suchen', 'aria-label': 'In der Kiste suchen' });
+  const filter = h('input.search', { type: 'search', placeholder: 'Suchen', 'aria-label': 'In der Kiste suchen' });
   const holder = h('div.scroll');
   const show = () => {
     const q = filter.value.trim().toLowerCase();
@@ -241,8 +246,8 @@ async function boxView(id) {
       render();
     } catch (e) { fail(e); }
   };
-  const more = () => dialog('Mehr', close => [
-    h('div.grid', {},
+  const more = () => dialog(box.name, close => [
+    h('div.group', {},
       btn('CSV exportieren', () => { download(`${safeFilename(box.name)}.csv`, toCsv(box.tracks), 'text/csv'); close(); }, 'ghost'),
       btn('Text exportieren', () => { download(`${safeFilename(box.name)}.txt`, toText(box.tracks)); close(); }, 'ghost'),
       btn('JSON exportieren', () => { download(`${safeFilename(box.name)}.json`, toJson(box), 'application/json'); close(); }, 'ghost'),
@@ -250,14 +255,15 @@ async function boxView(id) {
       confirmBtn('Kiste löschen', 'Wirklich löschen?', async () => { close(); await store.del('boxes', id); go('#/'); })),
   ]);
   return h('div.view', {},
-    h('div.head.sub', {}, backLink('#/'), rename),
+    nav('#/', 'Kisten', '', moreBtn(more)),
+    rename,
     h('p.meta', {}, `${songs(box.tracks.length)}, ${sourceLabel(box)}`),
     spine(box.tracks, { height: spineSize(), colorOf: sleeveColor, label: `${songs(box.tracks.length)} in ${box.name}` }),
-    h('div.sheet.fill', {}, filter, holder),
+    filter,
+    h('div.sheet.fill.fit', {}, holder),
     h('div.actions.bar', {},
       h('a.btn.wide', { href: `#/box/${id}/move` }, 'Umziehen'),
-      btn('Teilen', () => shareBox(box).catch(fail), 'ghost'),
-      btn('Mehr', more, 'ghost')));
+      btn('Teilen', () => shareBox(box).catch(fail), 'ghost')));
 }
 
 /* ---------- Umzug anlegen ---------- */
@@ -288,7 +294,7 @@ async function moveView(id, service = 'spotify') {
   if (!box) return missingView();
   const adapter = adapters[service] || spotify;
   return h('div.view', {},
-    deepHead('Umziehen', `#/box/${id}`),
+    nav(`#/box/${id}`, 'Zurück', 'Umziehen'),
     h('p.meta', {}, `${songs(box.tracks.length)} aus ${box.name}`),
     h('div.tabs', { role: 'tablist', 'aria-label': 'Zieldienst' }, Object.values(adapters).map(a => h('a', {
       role: 'tab', href: `#/box/${id}/move/${a.id}`, 'aria-selected': String(a === adapter),
@@ -302,9 +308,9 @@ const STATUS = {
   queued: 'Wartet auf den Start', matching: 'Sucht Songs', review: 'Wartet auf dich', writing: 'Trägt Songs ein',
   paused: 'Pausiert', done: 'Fertig', failed: 'Abgebrochen',
 };
-const jobSpine = (job, height) => {
+const jobSpine = (job, height, thumb = false) => {
   const c = counts(job);
-  return spine(job.items, { height, colorOf: stateColor, label: `${c.written} von ${c.total} Songs übertragen` });
+  return spine(job.items, { height, thumb, colorOf: stateColor, label: `${c.written} von ${c.total} Songs übertragen` });
 };
 const line = job => {
   const c = counts(job);
@@ -317,9 +323,10 @@ async function jobsView() {
     return h('div.view', {}, rootHead('Umzüge'), h('div.empty', {}, h('p', {}, 'Noch kein Umzug. Öffne eine Kiste und tippe auf Umziehen.')));
   }
   return h('div.view', {}, rootHead('Umzüge'), h('ul.boxes.fill', {}, jobs.map(job => h('li', {}, h('a.box', { href: `#/job/${job.id}` },
-    h('span.box-name', {}, `${job.boxName} nach ${serviceName(job.target.service)}`),
-    h('span.box-meta', {}, line(job)),
-    jobSpine(job, 30))))));
+    jobSpine(job, 44, true),
+    h('span.box-text', {},
+      h('span.box-name', {}, `${job.boxName} nach ${serviceName(job.target.service)}`),
+      h('span.box-meta', {}, line(job))))))));
 }
 
 const searchUrl = (service, q) => (service === 'spotify'
@@ -347,7 +354,7 @@ async function jobView(id) {
   const c = counts(job);
   const name = serviceName(job.target.service);
   const parts = [
-    deepHead(job.boxName, '#/jobs'),
+    nav('#/jobs', 'Umzüge', job.boxName, moreBtn(() => more())),
     h('p.meta', { id: 'jobLine' }, `Nach ${name}. ${line(job)}`),
     jobSpine(job, spineSize()),
   ];
@@ -371,8 +378,8 @@ async function jobView(id) {
   else if (job.status === 'paused' || job.status === 'failed') bar.append(btn('Weitermachen', async () => { retry(job); await save(); pump().catch(fail); render(); }));
   if (job.target.url) bar.append(h(`a.btn${job.status === 'done' ? '' : '.ghost'}`, { href: job.target.url, target: '_blank', rel: 'noopener' }, `In ${name} öffnen`));
   const missing = job.items.filter(i => i.state === 'missing');
-  const more = () => dialog('Mehr', close => [
-    h('div.grid', {},
+  const more = () => dialog(job.boxName, close => [
+    h('div.group', {},
       review ? btn('Alle ersten Vorschläge nehmen', async () => { acceptAllUnsure(job); await save(); close(); render(); }, 'ghost') : null,
       job.status === 'done' ? btn('Neue Songs nachziehen', async () => {
         close();
@@ -397,7 +404,6 @@ async function jobView(id) {
       btn('Bericht (CSV)', () => { download(`Bericht ${safeFilename(job.boxName)}.csv`, reportCsv(job), 'text/csv'); close(); }, 'ghost'),
       del),
   ]);
-  bar.append(btn('Mehr', more, 'ghost'));
   parts.push(bar);
   return h('div.view', {}, parts);
 }
@@ -408,10 +414,10 @@ async function sharedView() {
   if (!incoming) return missingView();
   const { name, tracks } = incoming;
   return h('div.view', {},
-    deepHead(name, '#/'),
+    nav('#/', 'Kisten', name),
     h('p.meta', {}, `${songs(tracks.length)} wurden mit dir geteilt.`),
     spine(tracks, { height: spineSize(), colorOf: sleeveColor, label: songs(tracks.length) }),
-    h('div.sheet.fill', {}, h('div.scroll', {}, paged(tracks, t => trackRow(t)))),
+    h('div.sheet.fill.fit', {}, h('div.scroll', {}, paged(tracks, t => trackRow(t)))),
     h('div.actions.bar', {}, btn('In meine Kisten legen', async () => {
       const box = await saveBox(makeBox({ name, tracks }));
       incoming = null;
@@ -490,7 +496,7 @@ async function settingsView(tab = 'spotify') {
     soon());
 }
 
-const missingView = () => h('div.view', {}, deepHead('Nicht gefunden', '#/'), h('div.empty', {}, h('p', {}, 'Das gibt es hier nicht mehr.'), h('a.btn', { href: '#/' }, 'Zu den Kisten')));
+const missingView = () => h('div.view', {}, nav('#/', 'Kisten', 'Nicht gefunden'), h('div.empty', {}, h('p', {}, 'Das gibt es hier nicht mehr.'), h('a.btn', { href: '#/' }, 'Zu den Kisten')));
 
 /* ---------- Kopf: Neues, Info ---------- */
 const SEEN = 'uk.seenVersion';
@@ -517,7 +523,7 @@ function showInfo() {
   dialog('Umzugskiste', close => [h('div.stack', {},
     h('p', {}, 'Läuft nur in deinem Browser. Kisten liegen auf diesem Gerät, Anfragen gehen direkt an den jeweiligen Dienst.'),
     h('p.muted', {}, 'Die SoundCloud-Anmeldung läuft kurz über eine kleine Funktion, die nichts speichert.'),
-    h('div.grid', {},
+    h('div.group', {},
       btn('Neues', () => { close(); showChangelog(); }, 'ghost'),
       h('a.btn.ghost', { id: 'feedback', target: '_blank', rel: 'noopener', href: `https://github.com/Oliver19xx/Umzugskiste/issues/new?body=${encodeURIComponent(`Version ${VERSION}\n\n`)}` }, 'Feedback'),
       installEvent ? btn('Installieren', () => installEvent.prompt(), 'ghost') : null),
@@ -544,14 +550,15 @@ async function render() {
   const mine = ++renderId;
   const [fn, args, nav] = route();
   document.body.classList.toggle('deep', !nav);
-  const entering = lastHash !== location.hash;
+  const depth = h => h.replace(/^#\/?/, '').split('/').filter(Boolean).length;
+  const motion = lastHash === null || lastHash === location.hash ? '' : depth(location.hash) > depth(lastHash) ? 'push' : depth(location.hash) < depth(lastHash) ? 'pop' : '';
   lastHash = location.hash;
   document.querySelectorAll('[data-nav]').forEach(a => {
     if (a.dataset.nav === nav) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
   });
   try {
     const node = await fn(...args);
-    if (mine === renderId) { node.classList.toggle('enter', entering); view.replaceChildren(node); }
+    if (mine === renderId) { if (motion) node.classList.add(motion); view.replaceChildren(node); }
   } catch (e) {
     if (mine === renderId) view.replaceChildren(h('div.view', {}, h('div.empty', {}, h('h1', {}, 'Das ging schief.'), h('p', {}, e.message))));
   }
