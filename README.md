@@ -58,4 +58,4 @@ Ideen und Fehler gern als [Issue](https://github.com/Oliver19xx/Umzugskiste/issu
 
 Spotify Developer Policy III.9 verbietet Übertragungen an andere Dienste, nimmt aber Playlist-Metadaten der Nutzer aus. SoundCloud-Terms: keine Audio-Weitergabe, Uploader und Quelle nennen, Secret schützen. Die App überträgt nur Metadaten und verlinkt auf die Originale.
 
-Nicht verbunden mit Spotify oder SoundCloud und nicht von ihnen unterstützt. Schriften: SIL OFL, siehe `fonts/LICENSE.txt`.
+Nicht verbunden mit Spotify, SoundCloud oder Apple und nicht von ihnen unterstützt.
